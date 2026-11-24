@@ -32,7 +32,7 @@ inline constexpr Array FETCH_SCHEMES = {
     "about"sv, "blob"sv, "data"sv, "file"sv, "http"sv, "https"sv,
 
     // AD-HOC: Internal fetch schemes:
-    "resource"sv
+    "resource"sv, "chrome-extension"sv
 };
 
 [[nodiscard]] WEBCOMMON_API bool is_local_url(URL::URL const&);

@@ -989,6 +989,8 @@ public:
     virtual void page_did_notify_about_user_activation([[maybe_unused]] HTML::CrossProcessId document_id) { }
 
     virtual void request_file(FileRequest) = 0;
+    // The path of the request is the chrome-extension: URL of a file of an extension.
+    virtual void request_extension_file(FileRequest request) { request.on_file_request_finish(Error::from_errno(ENOENT)); }
 
     // https://html.spec.whatwg.org/multipage/input.html#show-the-picker,-if-applicable
     virtual void page_did_request_color_picker([[maybe_unused]] Color current_color) { }

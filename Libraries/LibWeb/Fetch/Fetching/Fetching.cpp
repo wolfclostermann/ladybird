@@ -1750,6 +1750,11 @@ GC::Ref<PendingResponse> scheme_fetch(JS::Realm& realm, Infrastructure::FetchPar
 
         return nonstandard_resource_loader_file_or_http_network_fetch(realm, fetch_params);
     }
+    // AD-HOC: "chrome-extension"
+    else if (request->current_url().scheme() == "chrome-extension"sv) {
+        // NB: The UI process holds the files of extensions, and decides which of them a client may read.
+        return nonstandard_resource_loader_file_or_http_network_fetch(realm, fetch_params);
+    }
     // -> HTTP(S) scheme
     else if (Infrastructure::is_http_or_https_scheme(request->current_url().scheme())) {
         // Return the result of running HTTP fetch given fetchParams.

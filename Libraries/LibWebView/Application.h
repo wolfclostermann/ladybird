@@ -80,6 +80,8 @@ struct PinchEvent;
 
 namespace WebView {
 
+class HeadlessWebView;
+
 struct ApplicationSettingsObserver;
 struct ApplicationPermissionManagerObserver;
 
@@ -94,6 +96,11 @@ public:
     ErrorOr<int> execute();
 
     static Application& the() { return *s_the; }
+
+    Vector<LoadedExtension> const& extensions() const { return m_extensions; }
+    LoadedExtension const* extension_with_id(StringView id) const;
+    // Opens the file of an extension that a chrome-extension: URL names, for a renderer hosting a page of view.
+    ErrorOr<IPC::File> open_extension_file_for_view(ViewImplementation const&, URL::URL const&) const;
     static bool is_initialized() { return s_the != nullptr; }
 
     static Settings& settings() { return *the().m_settings; }
@@ -509,6 +516,7 @@ private:
     void apply_content_blocker_settings();
     void rebuild_content_blocker_list_paths();
     void load_extensions();
+    ErrorOr<void> start_extension_background_pages();
     ByteString content_blocker_list_path(StringView identifier) const;
     ErrorOr<void> save_content_blocker_list(ByteString const& path, ReadonlyBytes);
     enum class ContentBlockerListUpdateTrigger {
@@ -664,6 +672,7 @@ private:
     Vector<ByteString> m_explicit_content_blocker_list_paths;
     Vector<ByteString> m_extension_paths;
     Vector<LoadedExtension> m_extensions;
+    HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;
     Optional<String> m_extensions_json;
     ByteString m_content_blocker_lists_directory;
     Vector<PendingContentBlockerListUpdate> m_pending_content_blocker_list_updates;

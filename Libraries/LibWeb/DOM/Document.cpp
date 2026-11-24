@@ -6457,8 +6457,11 @@ void Document::destroy()
     stop_compositor_animation_timers();
 
     // The isolated worlds of extensions go away with the document, and give up the wrappers they kept.
-    for (auto const& it : m_extension_realms)
-        Bindings::host_defined_wrapper_world(*it.value).detach();
+    for (auto const& it : m_extension_realms) {
+        // NB: An extension's own page uses its main realm, which is not an isolated world.
+        if (auto& world = Bindings::host_defined_wrapper_world(*it.value); !world.is_main_world())
+            world.detach();
+    }
     m_extension_realms.clear();
 
     // AD-HOC: Notify document observers that this document became inactive.

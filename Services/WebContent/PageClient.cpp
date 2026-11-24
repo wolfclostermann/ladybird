@@ -2165,6 +2165,11 @@ void PageClient::request_file(Web::FileRequest file_request)
     client().request_file(m_id, move(file_request));
 }
 
+void PageClient::request_extension_file(Web::FileRequest file_request)
+{
+    client().request_extension_file(m_id, move(file_request));
+}
+
 void PageClient::request_file_for_webdriver(u64 command_id, Web::FileRequest file_request)
 {
     client().request_file_for_webdriver(m_id, command_id, move(file_request));

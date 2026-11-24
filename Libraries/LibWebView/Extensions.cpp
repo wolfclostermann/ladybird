@@ -10,7 +10,11 @@
 #include <LibCore/File.h>
 #include <LibCrypto/Hash/Hash.h>
 #include <LibFileSystem/FileSystem.h>
+#include <LibCore/System.h>
+#include <LibURL/URL.h>
 #include <LibWebView/Extensions.h>
+#include <LibWebView/LocalFileRoot.h>
+#include <LibWebView/Utilities.h>
 
 namespace WebView {
 
@@ -153,6 +157,115 @@ ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
     }
 
     return extension;
+}
+
+Optional<String> background_page_path(LoadedExtension const& extension)
+{
+    auto background = extension.manifest.get_object("background"sv);
+    if (!background.has_value())
+        return {};
+    if (auto page = background->get_string("page"sv); page.has_value())
+        return *page;
+    if (background->has("service_worker"sv) || background->has("scripts"sv))
+        return String::from_utf8_without_validation(generated_background_page_path.bytes());
+    return {};
+}
+
+static String escape_html_attribute(StringView value)
+{
+    StringBuilder builder;
+    for (auto c : value) {
+        if (c == '"')
+            builder.append("&quot;"sv);
+        else if (c == '&')
+            builder.append("&amp;"sv);
+        else if (c == '<')
+            builder.append("&lt;"sv);
+        else
+            builder.append(c);
+    }
+    return MUST(builder.to_string());
+}
+
+// Like Firefox, this runs a Manifest V3 service worker as the scripts of a background page rather than as a service
+// worker. An extension's background code mostly uses the extension APIs, which both offer alike.
+static String generated_background_page(LoadedExtension const& extension)
+{
+    StringBuilder builder;
+    builder.append("<!DOCTYPE html>\n<meta charset=\"utf-8\">\n"sv);
+
+    auto background = extension.manifest.get_object("background"sv);
+    if (background.has_value()) {
+        auto is_module = background->get_string("type"sv).value_or({}) == "module"sv;
+        auto append_script = [&](StringView path) {
+            builder.appendff("<script{} src=\"/{}\"></script>\n", is_module ? " type=\"module\""sv : ""sv, escape_html_attribute(path.trim("/"sv, TrimMode::Left)));
+        };
+
+        if (auto service_worker = background->get_string("service_worker"sv); service_worker.has_value()) {
+            append_script(*service_worker);
+        } else {
+            for (auto const& script : strings_of(*background, "scripts"sv))
+                append_script(script);
+        }
+    }
+
+    return MUST(builder.to_string());
+}
+
+static ErrorOr<IPC::File> file_with_contents(StringView contents)
+{
+    // A pipe holds the contents, so that nothing has to be written to disk. A background page is far smaller than the
+    // buffer of a pipe.
+    auto fds = TRY(Core::System::pipe2(O_CLOEXEC));
+    auto write_end = TRY(Core::File::adopt_fd(fds[1], Core::File::OpenMode::Write));
+    if (auto result = write_end->write_until_depleted(contents.bytes()); result.is_error()) {
+        (void)Core::System::close(fds[0]);
+        return result.release_error();
+    }
+    return IPC::File::adopt_fd(fds[0]);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/manifest/web-accessible-resources
+static bool is_web_accessible(LoadedExtension const& extension, StringView path)
+{
+    auto resources = extension.manifest.get_array("web_accessible_resources"sv);
+    if (!resources.has_value())
+        return false;
+
+    auto matches = [&](StringView glob) {
+        return path.matches(glob.trim("/"sv, TrimMode::Left), CaseSensitivity::CaseSensitive);
+    };
+
+    for (auto const& entry : resources->values()) {
+        // Manifest V2 lists the resources themselves.
+        if (entry.is_string() && matches(entry.as_string()))
+            return true;
+        // Manifest V3 lists them with the sites that may use them.
+        // FIXME: Check the site of the requesting page against the entry's matches.
+        if (entry.is_object() && any_of(strings_of(entry.as_object(), "resources"sv), [&](auto const& glob) { return matches(glob); }))
+            return true;
+    }
+    return false;
+}
+
+ErrorOr<IPC::File> open_extension_file(LoadedExtension const& extension, StringView url_path, ExtensionFileRequester requester)
+{
+    auto path = URL::percent_decode(url_path);
+    auto relative_path = path.view().trim("/"sv, TrimMode::Left);
+
+    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path))
+        return Error::from_errno(EACCES);
+
+    if (relative_path == generated_background_page_path) {
+        if (requester != ExtensionFileRequester::ExtensionPage)
+            return Error::from_errno(EACCES);
+        return file_with_contents(generated_background_page(extension));
+    }
+
+    // The roots keep the path, once its symbolic links are resolved, in the extension's directory.
+    LocalFileRoot root { .path = extension.directory, .scope = LocalFileRoot::Scope::Directory };
+    auto opened = TRY(open_local_file_for_renderer(LexicalPath::join(extension.directory, relative_path).string(), { &root, 1 }));
+    return move(opened.file);
 }
 
 String serialize_extensions_for_web_content(Vector<LoadedExtension> const& extensions)

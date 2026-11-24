@@ -377,6 +377,30 @@ static JS::Realm& isolated_world_for(DOM::Document& document, Extension const& e
     return realm;
 }
 
+static Extension const* extension_with_id(StringView id)
+{
+    for (auto const& extension : extensions()) {
+        if (extension.id == id)
+            return &extension;
+    }
+    return nullptr;
+}
+
+// The pages of an extension, such as its background page, get the extension APIs in their own realm.
+static void set_up_extension_page(DOM::Document& document)
+{
+    auto const& url = document.url();
+    if (url.scheme() != "chrome-extension"sv)
+        return;
+    auto const* extension = extension_with_id(url.serialized_host());
+    if (!extension || document.extension_realm(extension->id))
+        return;
+
+    auto& realm = HTML::relevant_realm(*document.window());
+    document.set_extension_realm(extension->id, realm);
+    run_script_in_realm(realm, document.relevant_settings_object(), MUST(String::formatted("chrome-extension://{}/_runtime.js", extension->id)), runtime_prelude(*extension));
+}
+
 static void run_content_scripts_at(DOM::Document& document, RunAt run_at)
 {
     for (auto const& extension : extensions()) {
@@ -414,8 +438,10 @@ void run_content_scripts(DOM::Document& document, RunAt run_at)
         document.set_extension_content_scripts_have_run(point);
 
         // The CSS of the content scripts that match the document applies from the start, once it is known which do.
-        if (point == RunAt::DocumentStart)
+        if (point == RunAt::DocumentStart) {
             document.invalidate_extension_style_sheet();
+            set_up_extension_page(document);
+        }
 
         run_content_scripts_at(document, point);
     }

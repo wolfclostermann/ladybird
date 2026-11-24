@@ -386,6 +386,47 @@ void ResourceLoader::handle_file_load_request(LoadRequest& request, FileHandler 
     page->client().request_file(move(file_request));
 }
 
+// NB: The renderer cannot read the files of extensions. The UI process opens the file a chrome-extension: URL names,
+//     if the page may read it.
+template<typename FileHandler, typename ErrorHandler>
+void ResourceLoader::handle_extension_load_request(LoadRequest& request, FileHandler on_file, ErrorHandler on_error)
+{
+    auto page = request.page();
+    if (!page) {
+        on_error("INTERNAL ERROR: No Page for chrome-extension scheme request"sv);
+        return;
+    }
+
+    auto const& url = request.url().value();
+
+    FileRequest file_request(url.serialize().to_byte_string(), [on_file, on_error, url](ErrorOr<i32> file_or_error) mutable {
+        if (file_or_error.is_error()) {
+            on_error(ByteString::formatted("{}", file_or_error.error()));
+            return;
+        }
+
+        auto maybe_file = Core::File::adopt_fd(file_or_error.value(), Core::File::OpenMode::Read);
+        if (maybe_file.is_error()) {
+            on_error(ByteString::formatted("{}", maybe_file.error()));
+            return;
+        }
+        auto maybe_data = maybe_file.value()->read_until_eof();
+        if (maybe_data.is_error()) {
+            on_error(ByteString::formatted("{}", maybe_data.error()));
+            return;
+        }
+
+        // The type of the file follows from the extension of its name, as for a file: URL.
+        FileLoadResult load_result {
+            .data = maybe_data.value().bytes(),
+            .response_headers = response_headers_for_file(URL::percent_decode(url.serialize_path()), maybe_data.value().size(), {}),
+        };
+        on_file(load_result);
+    });
+
+    page->client().request_extension_file(move(file_request));
+}
+
 template<typename ResourceHandler>
 void ResourceLoader::handle_about_load_request(LoadRequest const& request, ResourceHandler on_resource, GC::Ref<GC::Function<void(ByteString const&)>> on_error)
 {
@@ -504,6 +545,23 @@ RefPtr<Fetch::Engine::NetworkTransportHandle> ResourceLoader::load(LoadRequest& 
                 Requests::RequestTimingInfo fixme_implement_timing_info {};
                 on_complete->function()(false, fixme_implement_timing_info, StringView(message), {});
             });
+        return nullptr;
+    }
+
+    if (url.scheme() == "chrome-extension"sv) {
+        handle_extension_load_request(
+            request,
+            [request, on_headers_received = move(on_headers_received), on_data_received = move(on_data_received), on_complete](FileLoadResult const& load_result) {
+                log_success(request);
+                on_headers_received->function()(nullptr, load_result.response_headers, {}, {}, Requests::CacheState::NotCached);
+                on_data_received->function()(nullptr, Requests::ResponseData::from_bytes(load_result.data));
+                on_complete->function()(true, load_result.timing_info, {}, {});
+            },
+            [on_complete, request](ByteString const& message) {
+                log_failure(request, message);
+                on_complete->function()(false, {}, StringView(message), {});
+            });
+
         return nullptr;
     }
 

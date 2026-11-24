@@ -16,6 +16,7 @@
 #include <LibWebCommon/Page/InputEvent.h>
 #include <LibWebCommon/SecureContexts/AbstractOperations.h>
 #include <LibWebCommon/WebDriver/Error.h>
+#include <LibURL/Parser.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
@@ -1713,6 +1714,22 @@ void WebContentPage::did_request_file(ByteString path, i32 request_id)
         async_handle_file_return(file.error().code(), {}, request_id);
     else
         async_handle_file_return(0, move(file.value().file), request_id);
+}
+
+// NB: A renderer reads the files of extensions through the UI process too, which decides which of them its page may read.
+void WebContentPage::did_request_extension_file(ByteString url_string, i32 request_id)
+{
+    auto url = URL::Parser::basic_parse(url_string);
+    if (!url.has_value()) {
+        async_handle_file_return(EINVAL, {}, request_id);
+        return;
+    }
+
+    auto file = Application::the().open_extension_file_for_view(view(), *url);
+    if (file.is_error())
+        async_handle_file_return(file.error().is_errno() ? file.error().code() : EIO, {}, request_id);
+    else
+        async_handle_file_return(0, file.release_value(), request_id);
 }
 
 // NB: For a file input, Element Send Keys selects the files listed in its text. The page running the command may read

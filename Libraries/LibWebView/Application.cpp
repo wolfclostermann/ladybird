@@ -918,6 +918,60 @@ void Application::load_extensions()
         m_extensions_json = serialize_extensions_for_web_content(m_extensions);
 }
 
+LoadedExtension const* Application::extension_with_id(StringView id) const
+{
+    for (auto const& extension : m_extensions) {
+        if (extension.id == id)
+            return &extension;
+    }
+    return nullptr;
+}
+
+ErrorOr<IPC::File> Application::open_extension_file_for_view(ViewImplementation const& view, URL::URL const& url) const
+{
+    if (url.scheme() != "chrome-extension"sv)
+        return Error::from_errno(EINVAL);
+    auto const* extension = extension_with_id(url.serialized_host());
+    if (!extension)
+        return Error::from_errno(ENOENT);
+
+    // The view that hosts the extension's background page, and those that show one of its pages, host its own pages.
+    auto requester = ExtensionFileRequester::WebPage;
+    if (auto background_view = m_extension_background_views.get(extension->id); background_view.has_value() && static_cast<ViewImplementation const*>(background_view.value()) == &view)
+        requester = ExtensionFileRequester::ExtensionPage;
+    else if (auto view_url = view.url(); view_url.scheme() == "chrome-extension"sv && view_url.serialized_host() == extension->id)
+        requester = ExtensionFileRequester::ExtensionPage;
+
+    return open_extension_file(*extension, url.serialize_path(), requester);
+}
+
+ErrorOr<void> Application::start_extension_background_pages()
+{
+    if (m_extensions.is_empty())
+        return {};
+
+    auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
+    auto theme = TRY(Gfx::load_system_theme(theme_path.string()));
+
+    for (auto const& extension : m_extensions) {
+        auto path = background_page_path(extension);
+        if (!path.has_value())
+            continue;
+
+        auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension.id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+        if (!url.has_value()) {
+            warnln("Extension {} has an invalid background page: {}", extension.name, *path);
+            continue;
+        }
+
+        // The background page is never shown, so it is hosted by a view without a window.
+        auto view = HeadlessWebView::create(theme, { 800, 600 });
+        m_extension_background_views.set(extension.id, move(view));
+        m_extension_background_views.get(extension.id).value()->load_from_browser_ui(*url);
+    }
+    return {};
+}
+
 void Application::rebuild_content_blocker_list_paths()
 {
     m_browser_options.content_blocker_list_paths = m_explicit_content_blocker_list_paths;
@@ -2649,6 +2703,9 @@ ErrorOr<int> Application::execute()
             }
         }
     }
+
+    if (auto result = start_extension_background_pages(); result.is_error())
+        warnln("Unable to start the background pages of extensions: {}", result.error());
 
     return m_event_loop->exec();
 }

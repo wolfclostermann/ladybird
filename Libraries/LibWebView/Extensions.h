@@ -10,8 +10,10 @@
 #include <AK/Error.h>
 #include <AK/JsonObject.h>
 #include <AK/String.h>
-#include <AK/Vector.h>
 #include <AK/JsonArray.h>
+#include <AK/Optional.h>
+#include <AK/Vector.h>
+#include <LibIPC/File.h>
 #include <LibWebView/Export.h>
 
 // WebExtensions, loaded from directories that hold them unpacked: https://developer.chrome.com/docs/extensions
@@ -31,6 +33,21 @@ struct LoadedExtension {
 };
 
 WEBVIEW_API ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory);
+
+// The page that hosts an extension's background scripts, if it has any. For background scripts or a service worker,
+// it is generated, at this path.
+inline constexpr StringView generated_background_page_path = "_generated_background_page.html"sv;
+WEBVIEW_API Optional<String> background_page_path(LoadedExtension const&);
+
+enum class ExtensionFileRequester : u8 {
+    // The extension's own pages may read any of its files.
+    ExtensionPage,
+    // Other pages may read only the files it makes web accessible.
+    WebPage,
+};
+
+// Opens the file that a chrome-extension: URL's path names, for a renderer.
+WEBVIEW_API ErrorOr<IPC::File> open_extension_file(LoadedExtension const&, StringView url_path, ExtensionFileRequester);
 
 // The extensions as JSON, for a WebContent process.
 WEBVIEW_API String serialize_extensions_for_web_content(Vector<LoadedExtension> const&);
