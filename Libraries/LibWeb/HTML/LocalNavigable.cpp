@@ -62,6 +62,7 @@
 #include <LibWeb/HTML/HTMLParagraphElement.h>
 #include <LibWeb/HTML/History.h>
 #include <LibWeb/HTML/HistoryExecutor.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/LocalTraversableNavigable.h>
 #include <LibWeb/HTML/NavigableContainer.h>
@@ -1202,6 +1203,10 @@ void LocalNavigable::initialize_navigable(NonnullRefPtr<DocumentState> document_
     //         top-level traversable by the window handle it gets once it is created, so it does that once it has one.
     if (WebDriver::BiDi::is_active() && !is_top_level_traversable() && !is_stand_in)
         WebDriver::BiDi::document_is_ready_for_scripts(document);
+
+    // AD-HOC: The same goes for the content scripts of extensions that run in a child navigable's first document.
+    if (!is_top_level_traversable() && !is_stand_in)
+        Extensions::run_content_scripts(document, Extensions::RunAt::DocumentStart);
 
     // A child navigable's first document became active before it had a navigable, so the page client hears of it here,
     // as it hears of each document that later becomes active in the navigable.

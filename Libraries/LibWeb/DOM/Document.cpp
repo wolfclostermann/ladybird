@@ -1017,6 +1017,8 @@ void Document::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_window);
     visitor.visit(m_relevant_global_event_target);
     visitor.visit(m_style_sheets);
+    for (auto const& it : m_extension_realms)
+        visitor.visit(it.value);
     visitor.visit(m_hovered_node);
     visitor.visit(m_inspected_node);
     visitor.visit(m_highlighted_node);
@@ -1194,6 +1196,28 @@ Utf16String const& Document::content_blocker_style_sheet()
     }
 
     return m_content_blocker_style_sheet.value();
+}
+
+Utf16String const& Document::extension_style_sheet()
+{
+    // NB: Which CSS matches depends on the document's navigable, so this is invalidated once the document is active in
+    //     one, by invalidate_extension_style_sheet().
+    if (!m_extension_style_sheet.has_value())
+        m_extension_style_sheet = Extensions::style_sheet_for_document(*this);
+    return m_extension_style_sheet.value();
+}
+
+void Document::invalidate_extension_style_sheet()
+{
+    auto had_style_sheet = m_extension_style_sheet.has_value() && !m_extension_style_sheet->is_empty();
+    m_extension_style_sheet.clear();
+    if (had_style_sheet || !extension_style_sheet().is_empty())
+        style_scope().invalidate_user_style_sheet();
+}
+
+void Document::set_extension_realm(String const& extension_id, GC::Ref<JS::Realm> realm)
+{
+    m_extension_realms.set(extension_id, realm);
 }
 
 void Document::invalidate_content_blocker_style_sheet()
@@ -5010,6 +5034,16 @@ void Document::update_readiness(HTML::DocumentReadyState readiness_value)
         }
     }
 
+    // AD-HOC: The content scripts of extensions that run at "document_end" run once the DOM is complete, before the
+    //         page hears that it is. Those that run at "document_idle" run after the load event.
+    if (readiness_value == HTML::DocumentReadyState::Interactive) {
+        Extensions::run_content_scripts(*this, Extensions::RunAt::DocumentEnd);
+    } else if (readiness_value == HTML::DocumentReadyState::Complete && Extensions::has_extensions()) {
+        HTML::queue_global_task(HTML::Task::Source::DOMManipulation, relevant_global_object(*this), GC::create_function(heap(), GC::captures(GC::Ref { *this }), [](auto& document) {
+            Extensions::run_content_scripts(*document, Extensions::RunAt::DocumentIdle);
+        }));
+    }
+
     // 4. Fire an event named readystatechange at document.
     dispatch_event(Event::create(
         HTML::EventNames::readystatechange,
@@ -6421,6 +6455,11 @@ void Document::destroy()
 
     m_page->notifications_document_destroyed(*this);
     stop_compositor_animation_timers();
+
+    // The isolated worlds of extensions go away with the document, and give up the wrappers they kept.
+    for (auto const& it : m_extension_realms)
+        Bindings::host_defined_wrapper_world(*it.value).detach();
+    m_extension_realms.clear();
 
     // AD-HOC: Notify document observers that this document became inactive.
     //         This handles iframe-removal destruction, which doesn't otherwise go through
@@ -8397,6 +8436,10 @@ void Document::update_for_history_step_application(NonnullRefPtr<HTML::SessionHi
                 WebDriver::BiDi::document_is_ready_for_scripts(*this);
             }
         }
+
+        // AD-HOC: The content scripts of extensions that run at "document_start" run once the document is active in its
+        //         navigable, before scripts of the page may run for it.
+        Extensions::run_content_scripts(*this, Extensions::RunAt::DocumentStart);
 
         // 3. If scrollingBlockedInNewDocument is false, try to scroll to the fragment for document.
         if (!scrolling_blocked_in_new_document)

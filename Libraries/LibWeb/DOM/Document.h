@@ -39,6 +39,7 @@
 #include <LibWeb/Bindings/Document.h>
 #include <LibWeb/Bindings/NavigationType.h>
 #include <LibWeb/CSS/CustomPropertyRegistration.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/CSS/ImageStyleValueResourceKey.h>
 #include <LibWeb/CSS/RustInlineStyleBlocks.h>
 #include <LibWeb/CSS/ScrollStateContainerQuery.h>
@@ -1869,6 +1870,21 @@ public:
 
     bool content_blocking_enabled() const;
     Utf16String const& content_blocker_style_sheet();
+
+    // The CSS of the content scripts of extensions that match this document.
+    Utf16String const& extension_style_sheet();
+    void invalidate_extension_style_sheet();
+
+    // The isolated worlds of the extensions whose content scripts run in this document, by extension ID.
+    GC::Ptr<JS::Realm> extension_realm(String const& extension_id) const
+    {
+        if (auto realm = m_extension_realms.get(extension_id); realm.has_value())
+            return *realm;
+        return nullptr;
+    }
+    void set_extension_realm(String const& extension_id, GC::Ref<JS::Realm>);
+    bool extension_content_scripts_have_run(Extensions::RunAt run_at) const { return m_extension_content_scripts_run & (1u << to_underlying(run_at)); }
+    void set_extension_content_scripts_have_run(Extensions::RunAt run_at) { m_extension_content_scripts_run |= (1u << to_underlying(run_at)); }
     void invalidate_content_blocker_style_sheet();
     bool content_blocker_style_sheet_may_need_refresh_for_class_or_id(Utf16FlyString const* id, ReadonlySpan<Utf16FlyString> class_names);
 
@@ -2538,6 +2554,10 @@ private:
     // Class/id tokens already covered by the cached content blocker stylesheet.
     HashTable<Utf16FlyString> m_content_blocker_style_sheet_checked_classes;
     HashTable<Utf16FlyString> m_content_blocker_style_sheet_checked_ids;
+
+    Optional<Utf16String> m_extension_style_sheet;
+    HashMap<String, GC::Ref<JS::Realm>> m_extension_realms;
+    u8 m_extension_content_scripts_run { 0 };
 
     Optional<AK::UnixDateTime> m_last_modified;
 

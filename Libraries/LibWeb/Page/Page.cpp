@@ -2224,6 +2224,7 @@ void Page::invalidate_user_style()
     //     scope publishes, are planned again, so no element of a shadow tree restyles for it otherwise.
     auto invalidate_document = [](DOM::Document& document) {
         document.invalidate_content_blocker_style_sheet();
+        document.invalidate_extension_style_sheet();
         document.style_scope().invalidate_user_style_sheet();
         if (document.style_computer_if_created())
             CSS::record_non_author_stylesheets(document);
