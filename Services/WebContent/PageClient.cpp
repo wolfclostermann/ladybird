@@ -2170,6 +2170,11 @@ void PageClient::request_extension_file(Web::FileRequest file_request)
     client().request_extension_file(m_id, move(file_request));
 }
 
+void PageClient::page_did_call_extension_api(String const& extension_id, String const& context_json, String const& api, String const& arguments_json, u64 call_id)
+{
+    client().async_did_call_extension_api(m_id, extension_id, context_json, api, arguments_json, call_id);
+}
+
 void PageClient::request_file_for_webdriver(u64 command_id, Web::FileRequest file_request)
 {
     client().request_file_for_webdriver(m_id, command_id, move(file_request));

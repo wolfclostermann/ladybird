@@ -989,6 +989,8 @@ public:
     virtual void page_did_notify_about_user_activation([[maybe_unused]] HTML::CrossProcessId document_id) { }
 
     virtual void request_file(FileRequest) = 0;
+    // A context of an extension calls one of the extension APIs, which the UI process carries out.
+    virtual void page_did_call_extension_api([[maybe_unused]] String const& extension_id, [[maybe_unused]] String const& context_json, [[maybe_unused]] String const& api, [[maybe_unused]] String const& arguments_json, [[maybe_unused]] u64 call_id) { }
     // The path of the request is the chrome-extension: URL of a file of an extension.
     virtual void request_extension_file(FileRequest request) { request.on_file_request_finish(Error::from_errno(ENOENT)); }
 

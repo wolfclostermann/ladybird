@@ -52,6 +52,7 @@
 #include <LibWebView/DownloadStore.h>
 #include <LibWebView/ExternalURLHandler.h>
 #include <LibWebView/FileDownloader.h>
+#include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/Forward.h>
 #include <LibWebView/LocalFileRoot.h>
@@ -99,8 +100,12 @@ public:
 
     Vector<LoadedExtension> const& extensions() const { return m_extensions; }
     LoadedExtension const* extension_with_id(StringView id) const;
-    // Opens the file of an extension that a chrome-extension: URL names, for a renderer hosting a page of view.
-    ErrorOr<IPC::File> open_extension_file_for_view(ViewImplementation const&, URL::URL const&) const;
+    // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
+    ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&) const;
+    ExtensionHost& extension_host() { return m_extension_host; }
+    // The view that hosts an extension's background page, if it has one.
+    ViewImplementation* extension_background_view(StringView extension_id) const;
+    bool is_extension_background_view(ViewImplementation const&) const;
     static bool is_initialized() { return s_the != nullptr; }
 
     static Settings& settings() { return *the().m_settings; }
@@ -674,6 +679,7 @@ private:
     Vector<LoadedExtension> m_extensions;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;
     Optional<String> m_extensions_json;
+    ExtensionHost m_extension_host;
     ByteString m_content_blocker_lists_directory;
     Vector<PendingContentBlockerListUpdate> m_pending_content_blocker_list_updates;
     Optional<PendingContentBlockerListUpdate> m_active_content_blocker_list_update;

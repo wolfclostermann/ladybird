@@ -272,6 +272,7 @@ set(SOURCES
     EntriesAPI/FileSystemEntry.cpp
     EventTiming/EventTiming.cpp
     Extensions/ContentScripts.cpp
+    Extensions/ExtensionContext.cpp
     Fetch/Body.cpp
     Fetch/BodyInit.cpp
     Fetch/Engine/FetchBodyDeliveryGate.cpp

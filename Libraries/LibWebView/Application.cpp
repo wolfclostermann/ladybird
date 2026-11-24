@@ -58,6 +58,8 @@
 #include <LibWebView/FontServiceHost.h>
 #include <LibWebView/HSTSStore.h>
 #include <LibWebView/HeadlessWebView.h>
+#include <LibWebView/WebContentPage.h>
+#include <LibWebCommon/StorageAPI/StorageKey.h>
 #include <LibWebView/HelperProcess.h>
 #include <LibWebView/ImageDecoderManager.h>
 #include <LibWebView/NoOpDefaultBrowser.h>
@@ -927,7 +929,25 @@ LoadedExtension const* Application::extension_with_id(StringView id) const
     return nullptr;
 }
 
-ErrorOr<IPC::File> Application::open_extension_file_for_view(ViewImplementation const& view, URL::URL const& url) const
+ViewImplementation* Application::extension_background_view(StringView extension_id) const
+{
+    for (auto const& [id, view] : m_extension_background_views) {
+        if (id == extension_id)
+            return view.ptr();
+    }
+    return nullptr;
+}
+
+bool Application::is_extension_background_view(ViewImplementation const& view) const
+{
+    for (auto const& [id, background_view] : m_extension_background_views) {
+        if (static_cast<ViewImplementation const*>(background_view.ptr()) == &view)
+            return true;
+    }
+    return false;
+}
+
+ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage const& page, URL::URL const& url) const
 {
     if (url.scheme() != "chrome-extension"sv)
         return Error::from_errno(EINVAL);
@@ -935,11 +955,13 @@ ErrorOr<IPC::File> Application::open_extension_file_for_view(ViewImplementation 
     if (!extension)
         return Error::from_errno(ENOENT);
 
-    // The view that hosts the extension's background page, and those that show one of its pages, host its own pages.
+    // A page that hosts one of the extension's own documents, such as its background page or a frame of it in a tab,
+    // may read any of its files. Others may read only those it makes accessible to the web.
+    // FIXME: A process may host web content in the same page as an extension's frame. Give extensions processes of
+    //        their own.
     auto requester = ExtensionFileRequester::WebPage;
-    if (auto background_view = m_extension_background_views.get(extension->id); background_view.has_value() && static_cast<ViewImplementation const*>(background_view.value()) == &view)
-        requester = ExtensionFileRequester::ExtensionPage;
-    else if (auto view_url = view.url(); view_url.scheme() == "chrome-extension"sv && view_url.serialized_host() == extension->id)
+    auto extension_origin = url.origin();
+    if (is_extension_background_view(page.view()) || page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_origin)))
         requester = ExtensionFileRequester::ExtensionPage;
 
     return open_extension_file(*extension, url.serialize_path(), requester);

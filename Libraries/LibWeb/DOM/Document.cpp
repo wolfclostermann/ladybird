@@ -1017,7 +1017,7 @@ void Document::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_window);
     visitor.visit(m_relevant_global_event_target);
     visitor.visit(m_style_sheets);
-    for (auto const& it : m_extension_realms)
+    for (auto const& it : m_extension_contexts)
         visitor.visit(it.value);
     visitor.visit(m_hovered_node);
     visitor.visit(m_inspected_node);
@@ -1215,9 +1215,9 @@ void Document::invalidate_extension_style_sheet()
         style_scope().invalidate_user_style_sheet();
 }
 
-void Document::set_extension_realm(String const& extension_id, GC::Ref<JS::Realm> realm)
+void Document::set_extension_context(String const& extension_id, GC::Ref<Extensions::ExtensionContext> context)
 {
-    m_extension_realms.set(extension_id, realm);
+    m_extension_contexts.set(extension_id, context);
 }
 
 void Document::invalidate_content_blocker_style_sheet()
@@ -6457,12 +6457,12 @@ void Document::destroy()
     stop_compositor_animation_timers();
 
     // The isolated worlds of extensions go away with the document, and give up the wrappers they kept.
-    for (auto const& it : m_extension_realms) {
+    for (auto const& it : m_extension_contexts) {
         // NB: An extension's own page uses its main realm, which is not an isolated world.
-        if (auto& world = Bindings::host_defined_wrapper_world(*it.value); !world.is_main_world())
+        if (auto& world = Bindings::host_defined_wrapper_world(it.value->realm()); !world.is_main_world())
             world.detach();
     }
-    m_extension_realms.clear();
+    m_extension_contexts.clear();
 
     // AD-HOC: Notify document observers that this document became inactive.
     //         This handles iframe-removal destruction, which doesn't otherwise go through

@@ -51,6 +51,7 @@
 #include <LibWeb/DOM/CharacterData.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Extensions/ContentScripts.h>
+#include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/Node.h>
@@ -3487,6 +3488,25 @@ void ConnectionFromClient::set_extensions(String extensions_json)
 
     // The CSS of the extensions' content scripts is part of each document's user style sheet.
     m_page_host->invalidate_user_style();
+}
+
+void ConnectionFromClient::complete_extension_api_call(Web::PageId, u64 call_id, bool is_error, String payload)
+{
+    Web::Extensions::complete_api_call(call_id, is_error, payload);
+}
+
+void ConnectionFromClient::dispatch_extension_event(Web::PageId page_id, String extension_id, String target_json, String event, String arguments_json, u64 dispatch_id)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value()) {
+        async_did_finish_extension_event(page_id, dispatch_id, false, String {});
+        return;
+    }
+
+    Web::Extensions::dispatch_event(page->page(), extension_id, target_json, event, arguments_json, [weak_this = make_weak_ptr<ConnectionFromClient>(), page_id, dispatch_id](Optional<String> response) {
+        if (auto* self = weak_this.ptr())
+            self->async_did_finish_extension_event(page_id, dispatch_id, response.has_value(), response.value_or({}));
+    });
 }
 
 void ConnectionFromClient::set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host)

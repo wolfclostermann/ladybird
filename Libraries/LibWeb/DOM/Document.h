@@ -40,6 +40,7 @@
 #include <LibWeb/Bindings/NavigationType.h>
 #include <LibWeb/CSS/CustomPropertyRegistration.h>
 #include <LibWeb/Extensions/ContentScripts.h>
+#include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/CSS/ImageStyleValueResourceKey.h>
 #include <LibWeb/CSS/RustInlineStyleBlocks.h>
 #include <LibWeb/CSS/ScrollStateContainerQuery.h>
@@ -1875,14 +1876,14 @@ public:
     Utf16String const& extension_style_sheet();
     void invalidate_extension_style_sheet();
 
-    // The isolated worlds of the extensions whose content scripts run in this document, by extension ID.
-    GC::Ptr<JS::Realm> extension_realm(String const& extension_id) const
+    // The contexts of the extensions whose code runs in this document, by extension ID.
+    GC::Ptr<Extensions::ExtensionContext> extension_context(String const& extension_id) const
     {
-        if (auto realm = m_extension_realms.get(extension_id); realm.has_value())
-            return *realm;
+        if (auto context = m_extension_contexts.get(extension_id); context.has_value())
+            return *context;
         return nullptr;
     }
-    void set_extension_realm(String const& extension_id, GC::Ref<JS::Realm>);
+    void set_extension_context(String const& extension_id, GC::Ref<Extensions::ExtensionContext>);
     bool extension_content_scripts_have_run(Extensions::RunAt run_at) const { return m_extension_content_scripts_run & (1u << to_underlying(run_at)); }
     void set_extension_content_scripts_have_run(Extensions::RunAt run_at) { m_extension_content_scripts_run |= (1u << to_underlying(run_at)); }
     void invalidate_content_blocker_style_sheet();
@@ -2556,7 +2557,7 @@ private:
     HashTable<Utf16FlyString> m_content_blocker_style_sheet_checked_ids;
 
     Optional<Utf16String> m_extension_style_sheet;
-    HashMap<String, GC::Ref<JS::Realm>> m_extension_realms;
+    HashMap<String, GC::Ref<Extensions::ExtensionContext>> m_extension_contexts;
     u8 m_extension_content_scripts_run { 0 };
 
     Optional<AK::UnixDateTime> m_last_modified;

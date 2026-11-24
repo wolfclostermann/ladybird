@@ -22,6 +22,7 @@
 #include <LibWeb/Bindings/WrapperWorld.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Extensions/ContentScripts.h>
+#include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
@@ -114,101 +115,6 @@ ErrorOr<void> set_extensions_from_json(StringView json)
     return {};
 }
 
-// Whether text matches glob, in which "*" matches any run of characters, including none.
-static bool glob_matches(StringView glob, StringView text)
-{
-    size_t glob_index = 0;
-    size_t text_index = 0;
-    Optional<size_t> star_index;
-    size_t text_index_at_star = 0;
-
-    while (text_index < text.length()) {
-        if (glob_index < glob.length() && glob[glob_index] == '*') {
-            star_index = glob_index++;
-            text_index_at_star = text_index;
-        } else if (glob_index < glob.length() && glob[glob_index] == text[text_index]) {
-            ++glob_index;
-            ++text_index;
-        } else if (star_index.has_value()) {
-            glob_index = *star_index + 1;
-            text_index = ++text_index_at_star;
-        } else {
-            return false;
-        }
-    }
-
-    while (glob_index < glob.length() && glob[glob_index] == '*')
-        ++glob_index;
-    return glob_index == glob.length();
-}
-
-// https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns
-bool match_pattern_matches(StringView pattern, URL::URL const& url)
-{
-    auto scheme = url.scheme();
-
-    if (pattern == "<all_urls>"sv)
-        return scheme.is_one_of("http"sv, "https"sv, "ws"sv, "wss"sv, "ftp"sv, "file"sv, "data"sv);
-
-    auto scheme_separator = pattern.find("://"sv);
-    if (!scheme_separator.has_value())
-        return false;
-
-    auto pattern_scheme = pattern.substring_view(0, *scheme_separator);
-    auto rest = pattern.substring_view(*scheme_separator + 3);
-
-    if (pattern_scheme == "*"sv) {
-        if (!scheme.is_one_of("http"sv, "https"sv, "ws"sv, "wss"sv))
-            return false;
-    } else if (pattern_scheme != scheme) {
-        return false;
-    }
-
-    // A pattern has a path, if only "/".
-    auto path_start = rest.find('/');
-    if (!path_start.has_value())
-        return false;
-    auto pattern_host = rest.substring_view(0, *path_start);
-    auto pattern_path = rest.substring_view(*path_start);
-
-    if (scheme == "file"sv) {
-        if (!pattern_host.is_empty() && pattern_host != "*"sv)
-            return false;
-    } else {
-        // A host may name a port, which the URL then has to be on. Without one, any port matches.
-        Optional<StringView> pattern_port;
-        if (auto port_separator = pattern_host.find_last(':'); port_separator.has_value() && !pattern_host.ends_with(']')) {
-            pattern_port = pattern_host.substring_view(*port_separator + 1);
-            pattern_host = pattern_host.substring_view(0, *port_separator);
-        }
-
-        auto host = url.serialized_host();
-        if (pattern_host == "*"sv) {
-            // Any host matches.
-        } else if (pattern_host.starts_with("*."sv)) {
-            auto domain = pattern_host.substring_view(2);
-            if (!host.equals_ignoring_ascii_case(domain) && !(host.length() > domain.length() && host.ends_with(domain, CaseSensitivity::CaseInsensitive) && host[host.length() - domain.length() - 1] == '.'))
-                return false;
-        } else if (!host.equals_ignoring_ascii_case(pattern_host)) {
-            return false;
-        }
-
-        if (pattern_port.has_value() && *pattern_port != "*"sv) {
-            if (String::number(url.port_or_default()) != *pattern_port)
-                return false;
-        }
-    }
-
-    // The path of a pattern is matched against the path of the URL with its query.
-    StringBuilder path;
-    path.append(url.serialize_path());
-    if (auto query = url.query(); query.has_value()) {
-        path.append('?');
-        path.append(*query);
-    }
-    return glob_matches(pattern_path, path.string_view());
-}
-
 // The URL that the content scripts of document are matched against: that of the document itself, or for an
 // about:blank or about:srcdoc document whose content scripts match about:blank documents, that of its parent.
 static Optional<URL::URL> url_for_matching(DOM::Document const& document, ContentScript const& content_script)
@@ -248,75 +154,6 @@ static bool content_script_matches(DOM::Document const& document, ContentScript 
     return any_of(content_script.matches, matches) && !any_of(content_script.exclude_matches, matches);
 }
 
-// The chrome object of the realm of an extension. Only what needs nothing of other processes is implemented so far.
-static Utf16String runtime_prelude(Extension const& extension)
-{
-    StringBuilder builder;
-    builder.append(R"~~~((() => {
-    "use strict";
-    const extensionId = )~~~"sv);
-    builder.append(JsonValue { extension.id }.serialized());
-    builder.append(R"~~~(;
-    const manifest = )~~~"sv);
-    builder.append(extension.manifest_json);
-    builder.append(R"~~~(;
-
-    const notImplemented = (name) => function () {
-        const error = new Error(`chrome.${name} is not implemented yet`);
-        const callback = arguments[arguments.length - 1];
-        if (typeof callback === "function") {
-            console.warn(error.message);
-            return undefined;
-        }
-        return Promise.reject(error);
-    };
-
-    class ExtensionEvent {
-        #listeners = new Set();
-        addListener(listener) { this.#listeners.add(listener); }
-        removeListener(listener) { this.#listeners.delete(listener); }
-        hasListener(listener) { return this.#listeners.has(listener); }
-        hasListeners() { return this.#listeners.size > 0; }
-    }
-
-    const storageArea = (name) => ({
-        get: notImplemented(`storage.${name}.get`),
-        set: notImplemented(`storage.${name}.set`),
-        remove: notImplemented(`storage.${name}.remove`),
-        clear: notImplemented(`storage.${name}.clear`),
-        onChanged: new ExtensionEvent(),
-    });
-
-    globalThis.chrome = {
-        runtime: {
-            id: extensionId,
-            getManifest: () => structuredClone(manifest),
-            getURL: (path) => `chrome-extension://${extensionId}/${String(path).replace(/^\/+/, "")}`,
-            sendMessage: notImplemented("runtime.sendMessage"),
-            connect: notImplemented("runtime.connect"),
-            onMessage: new ExtensionEvent(),
-            onConnect: new ExtensionEvent(),
-            lastError: undefined,
-        },
-        storage: {
-            local: storageArea("local"),
-            sync: storageArea("sync"),
-            session: storageArea("session"),
-            onChanged: new ExtensionEvent(),
-        },
-        i18n: {
-            getMessage: () => "",
-            getUILanguage: () => navigator.language,
-        },
-        extension: {
-            inIncognitoContext: false,
-        },
-    };
-})();
-)~~~"sv);
-    return Utf16String::from_utf8(builder.string_view());
-}
-
 static void run_script_in_realm(JS::Realm& realm, HTML::EnvironmentSettingsObject& settings, String const& filename, Utf16String source)
 {
     auto display_filename = Utf16String::from_utf8(filename);
@@ -337,7 +174,7 @@ static void run_script_in_realm(JS::Realm& realm, HTML::EnvironmentSettingsObjec
 
 // Creates the isolated world of extension in document: a realm whose global object is a wrapper of document's Window
 // in a wrapper world of its own.
-static GC::Ref<JS::Realm> create_isolated_world(DOM::Document& document, Extension const& extension)
+static GC::Ref<JS::Realm> create_isolated_world(DOM::Document& document)
 {
     auto& window = *document.window();
     auto& window_realm = HTML::relevant_realm(window);
@@ -363,17 +200,15 @@ static GC::Ref<JS::Realm> create_isolated_world(DOM::Document& document, Extensi
 
     // The members of Window are defined on its wrapper once the realm has its intrinsics, as for the realm of the page.
     MUST(Bindings::initialize_window_web_interfaces(window, realm));
-
-    run_script_in_realm(realm, document.relevant_settings_object(), MUST(String::formatted("chrome-extension://{}/_runtime.js", extension.id)), runtime_prelude(extension));
     return realm;
 }
 
 static JS::Realm& isolated_world_for(DOM::Document& document, Extension const& extension)
 {
-    if (auto realm = document.extension_realm(extension.id))
-        return *realm;
-    auto realm = create_isolated_world(document, extension);
-    document.set_extension_realm(extension.id, realm);
+    if (auto context = document.extension_context(extension.id))
+        return context->realm();
+    auto realm = create_isolated_world(document);
+    document.set_extension_context(extension.id, ExtensionContext::create(document, realm, extension, ExtensionContext::Type::ContentScript));
     return realm;
 }
 
@@ -393,12 +228,11 @@ static void set_up_extension_page(DOM::Document& document)
     if (url.scheme() != "chrome-extension"sv)
         return;
     auto const* extension = extension_with_id(url.serialized_host());
-    if (!extension || document.extension_realm(extension->id))
+    if (!extension || document.extension_context(extension->id))
         return;
 
     auto& realm = HTML::relevant_realm(*document.window());
-    document.set_extension_realm(extension->id, realm);
-    run_script_in_realm(realm, document.relevant_settings_object(), MUST(String::formatted("chrome-extension://{}/_runtime.js", extension->id)), runtime_prelude(*extension));
+    document.set_extension_context(extension->id, ExtensionContext::create(document, realm, *extension, ExtensionContext::Type::ExtensionPage));
 }
 
 static void run_content_scripts_at(DOM::Document& document, RunAt run_at)

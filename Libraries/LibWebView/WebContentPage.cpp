@@ -1725,11 +1725,21 @@ void WebContentPage::did_request_extension_file(ByteString url_string, i32 reque
         return;
     }
 
-    auto file = Application::the().open_extension_file_for_view(view(), *url);
+    auto file = Application::the().open_extension_file_for_page(*this, *url);
     if (file.is_error())
         async_handle_file_return(file.error().is_errno() ? file.error().code() : EIO, {}, request_id);
     else
         async_handle_file_return(0, file.release_value(), request_id);
+}
+
+void WebContentPage::did_call_extension_api(String extension_id, String context_json, String api, String arguments_json, u64 call_id)
+{
+    Application::the().extension_host().handle_api_call(*this, extension_id, context_json, api, arguments_json, call_id);
+}
+
+void WebContentPage::did_finish_extension_event(u64 dispatch_id, bool has_response, String response_json)
+{
+    Application::the().extension_host().did_finish_event(dispatch_id, has_response ? Optional<String> { move(response_json) } : OptionalNone {});
 }
 
 // NB: For a file input, Element Send Keys selects the files listed in its text. The page running the command may read

@@ -13,6 +13,7 @@
 #include <LibURL/Forward.h>
 #include <LibWeb/Export.h>
 #include <LibWeb/Forward.h>
+#include <LibWebCommon/Extensions/MatchPattern.h>
 
 // Content scripts of WebExtensions: https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
 //
@@ -53,9 +54,6 @@ struct Extension {
 // Replaces the extensions of this process with those of a JSON array that the UI process serialized.
 WEB_API ErrorOr<void> set_extensions_from_json(StringView);
 WEB_API bool has_extensions();
-
-// https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns
-WEB_API bool match_pattern_matches(StringView pattern, URL::URL const&);
 
 // Runs the content scripts of document that are to run at run_at, and those of the earlier points that have not run yet.
 void run_content_scripts(DOM::Document&, RunAt);
