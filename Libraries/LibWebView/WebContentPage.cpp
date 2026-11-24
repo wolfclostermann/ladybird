@@ -3170,6 +3170,7 @@ void WebContentPage::did_finish_loading(Web::HTML::CrossProcessId navigable_id, 
             view().did_change_visited_page_title(committed_url, *title);
 
         view().did_finish_navigation();
+        Application::the().extension_host().view_did_finish_load(view());
 
         if (view().on_load_finish)
             view().on_load_finish(committed_url);

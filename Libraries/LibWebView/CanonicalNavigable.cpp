@@ -1657,6 +1657,8 @@ void CanonicalNavigable::did_commit_navigation(CanonicalSessionHistoryEntry& ent
     update_hosted_state(move(hosted_state));
     if (document != previous_document && document->is_completely_loaded())
         send_completely_finished_loading_to_container();
+    if (document != previous_document)
+        Application::the().extension_host().navigable_did_commit(*this);
 
     // The displaced document is gone, and its child navigables with it. When another page hosts the activated
     // document, the page that hosted the displaced one holds the navigable remotely from now on.

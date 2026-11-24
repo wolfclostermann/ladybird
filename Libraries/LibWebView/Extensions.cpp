@@ -159,6 +159,11 @@ ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
     return extension;
 }
 
+ErrorOr<String> read_extension_text_file(LoadedExtension const& extension, StringView relative_path)
+{
+    return read_text_file(extension.directory, relative_path.trim("/"sv, TrimMode::Left));
+}
+
 Optional<String> background_page_path(LoadedExtension const& extension)
 {
     auto background = extension.manifest.get_object("background"sv);

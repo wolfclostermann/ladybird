@@ -170,8 +170,18 @@ static constexpr StringView runtime_source = R"~~~(
                 ["getFrame", "getAllFrames"],
                 ["onBeforeNavigate", "onCommitted", "onDOMContentLoaded", "onCompleted", "onErrorOccurred",
                     "onCreatedNavigationTarget", "onReferenceFragmentUpdated", "onTabReplaced", "onHistoryStateUpdated"]),
-            scripting: namespace("scripting", ["executeScript", "insertCSS", "removeCSS", "registerContentScripts",
-                "unregisterContentScripts", "getRegisteredContentScripts"]),
+            scripting: namespace("scripting", ["insertCSS", "removeCSS", "registerContentScripts",
+                "unregisterContentScripts", "getRegisteredContentScripts"], [], {
+                // A function cannot be sent as JSON, so its source is sent, to run where it is injected.
+                executeScript(injection, callback) {
+                    const details = { ...injection };
+                    const func = details.func ?? details.function;
+                    delete details.function;
+                    if (typeof func === "function")
+                        details.func = String(func);
+                    return invoke("scripting.executeScript", callback ? [details, callback] : [details]);
+                },
+            }),
             history: namespace("history", ["search", "getVisits", "addUrl", "deleteUrl", "deleteRange", "deleteAll"],
                 ["onVisited", "onVisitRemoved"]),
             bookmarks: namespace("bookmarks", ["get", "getChildren", "getRecent", "getTree", "getSubTree", "search",

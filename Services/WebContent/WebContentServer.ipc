@@ -266,6 +266,8 @@ endpoint WebContentServer routed by Web::PageId page_id
     set_extensions(String extensions_json) =|
     complete_extension_api_call(Web::PageId page_id, u64 call_id, bool is_error, String payload) =|
     dispatch_extension_event(Web::PageId page_id, String extension_id, String target_json, String event, String arguments_json, u64 dispatch_id) =|
+    // Answered with did_finish_extension_event, whose response is the JSON array of each frame's result.
+    inject_into_extension_frames(Web::PageId page_id, String extension_id, String target_json, String details_json, u64 dispatch_id) =|
 
     set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host) =|
     set_force_dark_for_local_roots(Web::PageId page_id, bool enabled) =|

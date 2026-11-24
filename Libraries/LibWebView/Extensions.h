@@ -34,6 +34,9 @@ struct LoadedExtension {
 
 WEBVIEW_API ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory);
 
+// Reads a text file of an extension, at a path relative to its directory, which the path may not leave.
+WEBVIEW_API ErrorOr<String> read_extension_text_file(LoadedExtension const&, StringView relative_path);
+
 // The page that hosts an extension's background scripts, if it has any. For background scripts or a service worker,
 // it is generated, at this path.
 inline constexpr StringView generated_background_page_path = "_generated_background_page.html"sv;

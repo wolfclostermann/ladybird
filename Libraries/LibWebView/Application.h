@@ -677,9 +677,10 @@ private:
     Vector<ByteString> m_explicit_content_blocker_list_paths;
     Vector<ByteString> m_extension_paths;
     Vector<LoadedExtension> m_extensions;
+    // NB: The host outlives the views of background pages, which it hears of as they go away.
+    ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;
     Optional<String> m_extensions_json;
-    ExtensionHost m_extension_host;
     ByteString m_content_blocker_lists_directory;
     Vector<PendingContentBlockerListUpdate> m_pending_content_blocker_list_updates;
     Optional<PendingContentBlockerListUpdate> m_active_content_blocker_list_update;

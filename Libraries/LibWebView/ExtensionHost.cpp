@@ -6,6 +6,7 @@
 
 #include <AK/JsonParser.h>
 #include <AK/LexicalPath.h>
+#include <AK/QuickSort.h>
 #include <LibURL/Parser.h>
 #include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebView/Application.h>
@@ -15,6 +16,9 @@
 #include <LibWebView/CanonicalTraversable.h>
 #include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
+#include <LibWebView/HistoryStore.h>
+#include <LibDatabase/Database.h>
+#include <LibCore/File.h>
 #include <LibWebView/Utilities.h>
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentPage.h>
@@ -46,9 +50,44 @@ static Optional<ViewImplementation&> tab_view_with_id(i64 tab_id)
     return {};
 }
 
+static bool is_tab_view(ViewImplementation const& view)
+{
+    return !Application::the().is_extension_background_view(view) && !view.owner_view_id().has_value();
+}
+
 static bool view_is_active(ViewImplementation& view)
 {
-    return view.traversable().system_visibility_state() == Web::HTML::VisibilityState::Visible;
+    // The application knows which view is active when a UI shows it. Otherwise, the visible views are.
+    if (auto active_view = Application::the().active_web_view(); active_view.has_value())
+        return &*active_view == &view;
+    return view.has_traversable() && view.traversable().system_visibility_state() == Web::HTML::VisibilityState::Visible;
+}
+
+// The tab that a call without a tab ID acts on: the active one, as Chromium picks in the current window.
+static Optional<ViewImplementation&> active_tab_view()
+{
+    Optional<ViewImplementation&> first_tab;
+    for (auto& view : tab_views()) {
+        if (view_is_active(view))
+            return view;
+        if (!first_tab.has_value())
+            first_tab = view;
+    }
+    return first_tab;
+}
+
+static Optional<ViewImplementation&> tab_view_for_argument(JsonValue const& tab_id)
+{
+    if (tab_id.is_null())
+        return active_tab_view();
+    if (auto id = tab_id.get_integer<i64>(); id.has_value())
+        return tab_view_with_id(*id);
+    return {};
+}
+
+static u64 milliseconds_since_epoch()
+{
+    return static_cast<u64>(UnixDateTime::now().milliseconds_since_epoch());
 }
 
 static u64 frame_id_of(CanonicalNavigable const& navigable)
@@ -111,7 +150,7 @@ JsonObject tab_object_for(ViewImplementation& view, size_t index)
     tab.set("incognito"sv, view.is_private() == IsPrivate::Yes);
     tab.set("url"sv, view.url().serialize());
     tab.set("title"sv, view.title().to_well_formed_utf8());
-    tab.set("status"sv, "complete"sv);
+    tab.set("status"sv, view.is_loading() ? "loading"sv : "complete"sv);
     tab.set("mutedInfo"sv, JsonObject {});
     return tab;
 }
@@ -285,8 +324,6 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         return complete(result(frames));
     }
 
-    if (api == "tabs.getZoom"sv)
-        return complete(result(1.0));
 
     if (api == "windows.getCurrent"sv || api == "windows.getLastFocused"sv || api == "windows.get"sv) {
         auto options = argument(api == "windows.get"sv ? 1 : 0);
@@ -308,6 +345,19 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         if (function.starts_with("set"sv) || function.is_one_of("enable"sv, "disable"sv))
             return complete(undefined_result());
     }
+
+    if (api.starts_with("tabs."sv))
+        return tabs_call(page, extension, api.substring_view(5), arguments, move(complete));
+    if (api.starts_with("scripting."sv))
+        return scripting_call(page, extension, api.substring_view(10), arguments, move(complete));
+
+    if (api.starts_with("history."sv))
+        return history_call(api.substring_view(8), arguments, move(complete));
+    if (api.starts_with("bookmarks."sv))
+        return bookmarks_call(api.substring_view(10), arguments, move(complete));
+
+    if (api == "windows.update"sv)
+        return complete(result(window_object(false)));
 
     if (api == "permissions.contains"sv)
         return complete(result(true));
@@ -352,11 +402,61 @@ void ExtensionHost::runtime_send_message(WebContentPage& page, LoadedExtension c
     event_arguments.must_append(arguments.is_empty() ? JsonValue {} : arguments.at(0));
     event_arguments.must_append(sender_for(page, extension, context));
 
-    JsonObject target;
-    target.set("contextType"sv, "extension_page"sv);
-    dispatch_event(*background_view, extension.id, target, "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Optional<String> response) mutable {
-        complete({ .is_error = false, .payload = response.value_or({}) });
-    });
+    auto send = [this, background_view, extension_id = extension.id, event_arguments = move(event_arguments), complete = move(complete)]() mutable {
+        JsonObject target;
+        target.set("contextType"sv, "extension_page"sv);
+        dispatch_event(*background_view, extension_id, target, "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Optional<String> response) mutable {
+            complete({ .is_error = false, .payload = response.value_or({}) });
+        });
+    };
+    if (!m_loaded_background_pages.contains(extension.id)) {
+        m_waiting_for_background_page.ensure(extension.id).append(move(send));
+        return;
+    }
+    send();
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/runtime#event-onInstalled
+// https://developer.chrome.com/docs/extensions/reference/api/runtime#event-onStartup
+void ExtensionHost::background_page_did_load(LoadedExtension const& extension)
+{
+    if (m_loaded_background_pages.contains(extension.id))
+        return;
+    m_loaded_background_pages.set(extension.id);
+
+    // An extension is installed when the profile first runs it, and updated when it runs with another version.
+    auto path = LexicalPath::join(Application::profile().paths().data, "Extensions"sv, extension.id, "installed.json"sv).string();
+    Optional<String> previous_version;
+    if (auto installed = read_json_file(path); !installed.is_error()) {
+        if (auto version = installed.value().get_string("version"sv); version.has_value())
+            previous_version = *version;
+    }
+
+    JsonArray arguments;
+    StringView event = "runtime.onStartup"sv;
+    if (previous_version != extension.version) {
+        JsonObject details;
+        details.set("reason"sv, previous_version.has_value() ? "update"sv : "install"sv);
+        if (previous_version.has_value())
+            details.set("previousVersion"sv, *previous_version);
+        arguments.must_append(move(details));
+        event = "runtime.onInstalled"sv;
+
+        JsonObject installed;
+        installed.set("version"sv, extension.version);
+        if (auto result = write_json_file(path, installed); result.is_error())
+            warnln("Unable to note the installation of extension {}: {}", extension.name, result.error());
+    }
+
+    if (auto* view = Application::the().extension_background_view(extension.id)) {
+        JsonObject target;
+        target.set("contextType"sv, "extension_page"sv);
+        dispatch_event(*view, extension.id, target, event, arguments, [](auto) { });
+    }
+
+    // The messages that waited go once the listeners of the event have run, as the event was dispatched first.
+    for (auto& send : m_waiting_for_background_page.take(extension.id).value_or({}))
+        send();
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#method-sendMessage
@@ -600,6 +700,701 @@ void ExtensionHost::broadcast_event(String const& extension_id, StringView event
     });
     for (auto& view : views)
         dispatch_event(view, extension_id, {}, event, arguments, [](auto) { });
+}
+
+// The tab that a page shows, for a call from a content script or an extension page in a tab.
+static Optional<ViewImplementation&> tab_view_of_page(WebContentPage& page)
+{
+    if (!is_tab_view(page.view()))
+        return {};
+    return page.view();
+}
+
+static Optional<URL::URL> url_for_extension(LoadedExtension const& extension, StringView url)
+{
+    // A relative URL is relative to the extension's root.
+    auto base = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/", extension.id)));
+    return URL::Parser::basic_parse(url, base.value());
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/tabs
+void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& extension, StringView function, JsonArray const& arguments, Completion complete)
+{
+    auto argument = [&](size_t index) -> JsonValue {
+        return index < arguments.size() ? arguments.at(index) : JsonValue {};
+    };
+    auto tab_result = [&](ViewImplementation& view) {
+        auto tab = tab_object_with_id(static_cast<i64>(view.view_id()));
+        return tab.has_value() ? result(*tab) : undefined_result();
+    };
+    auto no_tab = [&](JsonValue const& tab_id) {
+        return error(MUST(String::formatted("No tab with id: {}", tab_id)));
+    };
+
+    if (function == "create"sv) {
+        auto properties = argument(0).is_object() ? argument(0).as_object() : JsonObject {};
+        Optional<URL::URL> url;
+        if (auto url_string = properties.get_string("url"sv); url_string.has_value()) {
+            url = url_for_extension(extension, *url_string);
+            if (!url.has_value())
+                return complete(error(MUST(String::formatted("Invalid url: \"{}\"", *url_string))));
+        }
+
+        // The new tab goes with the tab it was opened from, as Chromium places it next to that tab.
+        Optional<ViewImplementation&> source_view;
+        if (auto opener = properties.get_integer<i64>("openerTabId"sv); opener.has_value())
+            source_view = tab_view_with_id(*opener);
+        if (!source_view.has_value())
+            source_view = tab_view_of_page(page);
+        if (!source_view.has_value())
+            source_view = active_tab_view();
+
+        auto activate = properties.get_bool("active"sv).value_or(true) ? Web::HTML::ActivateTab::Yes : Web::HTML::ActivateTab::No;
+        auto view = Application::the().open_blank_new_tab(activate, source_view.has_value() ? &*source_view : nullptr);
+        if (!view.has_value())
+            return complete(error("Tabs cannot be created here"sv));
+
+        if (url.has_value())
+            view->load_from_browser_ui(*url);
+
+        auto tab = tab_object_with_id(static_cast<i64>(view->view_id())).value_or(tab_object_for(*view, 0));
+        if (url.has_value())
+            tab.set("pendingUrl"sv, url->serialize());
+        return complete(result(tab));
+    }
+
+    // The functions that take a tab ID first default to the active tab without one.
+    auto tab_id = argument(0);
+    auto rest = [&](size_t index) { return argument(tab_id.is_object() ? index - 1 : index); };
+    if (tab_id.is_object() && function.is_one_of("update"sv, "reload"sv))
+        tab_id = JsonValue {};
+
+    if (function == "remove"sv) {
+        Vector<ViewImplementation*> views;
+        auto add = [&](JsonValue const& id) {
+            auto view = tab_view_for_argument(id);
+            if (view.has_value())
+                views.append(&*view);
+            return view.has_value();
+        };
+        if (tab_id.is_array()) {
+            for (auto const& id : tab_id.as_array().values()) {
+                if (!add(id))
+                    return complete(no_tab(id));
+            }
+        } else if (!add(tab_id)) {
+            return complete(no_tab(tab_id));
+        }
+        for (auto* view : views)
+            view->request_close();
+        return complete(undefined_result());
+    }
+
+    auto view = tab_view_for_argument(tab_id);
+    if (!view.has_value())
+        return complete(no_tab(tab_id));
+
+    if (function == "update"sv) {
+        auto properties = rest(1).is_object() ? rest(1).as_object() : JsonObject {};
+        if (auto url_string = properties.get_string("url"sv); url_string.has_value()) {
+            auto url = url_for_extension(extension, *url_string);
+            if (!url.has_value())
+                return complete(error(MUST(String::formatted("Invalid url: \"{}\"", *url_string))));
+            view->load_from_browser_ui(*url);
+        }
+        if (properties.get_bool("active"sv).value_or(false) || properties.get_bool("highlighted"sv).value_or(false)) {
+            if (view->on_activate_tab)
+                view->on_activate_tab();
+        }
+        if (auto muted = properties.get_bool("muted"sv); muted.has_value())
+            view->set_page_mute_state(*muted ? Web::HTML::MuteState::Muted : Web::HTML::MuteState::Unmuted);
+        // FIXME: Pin tabs, once the UI can be told to.
+        return complete(tab_result(*view));
+    }
+
+    if (function == "reload"sv) {
+        auto properties = rest(1).is_object() ? rest(1).as_object() : JsonObject {};
+        view->reload(properties.get_bool("bypassCache"sv).value_or(false) ? BypassCache::Yes : BypassCache::No);
+        return complete(undefined_result());
+    }
+
+    if (function == "duplicate"sv) {
+        auto url = view->url();
+        auto new_view = Application::the().open_blank_new_tab(Web::HTML::ActivateTab::Yes, &*view);
+        if (!new_view.has_value())
+            return complete(error("Tabs cannot be created here"sv));
+        new_view->load_from_browser_ui(url);
+        return complete(tab_result(*new_view));
+    }
+
+    if (function == "getZoom"sv)
+        return complete(result(view->zoom_level()));
+
+    if (function == "setZoom"sv) {
+        // A zoom factor of 0 resets the tab to the default.
+        auto factor = rest(1).get_double_with_precision_loss().value_or(0);
+        if (factor <= 0)
+            view->reset_zoom();
+        else
+            view->set_zoom(factor);
+        return complete(undefined_result());
+    }
+
+    if (function == "goBack"sv || function == "goForward"sv) {
+        view->traverse_the_history_by_delta(function == "goBack"sv ? -1 : 1);
+        return complete(undefined_result());
+    }
+
+    complete(error(MUST(String::formatted("chrome.tabs.{} is not implemented yet", function))));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/scripting
+void ExtensionHost::scripting_call(WebContentPage&, LoadedExtension const& extension, StringView function, JsonArray const& arguments, Completion complete)
+{
+    if (!function.is_one_of("executeScript"sv, "insertCSS"sv, "removeCSS"sv)) {
+        complete(error(MUST(String::formatted("chrome.scripting.{} is not implemented yet", function))));
+        return;
+    }
+
+    auto injection = arguments.is_empty() || !arguments.at(0).is_object() ? JsonObject {} : arguments.at(0).as_object();
+    auto target = injection.get_object("target"sv).value_or({});
+    auto tab_id = target.get_integer<i64>("tabId"sv);
+    auto view = tab_id.has_value() ? tab_view_with_id(*tab_id) : Optional<ViewImplementation&> {};
+    if (!view.has_value()) {
+        complete(error(MUST(String::formatted("No tab with id: {}", tab_id.value_or(-1)))));
+        return;
+    }
+
+    JsonObject frame_target;
+    frame_target.set("allFrames"sv, target.get_bool("allFrames"sv).value_or(false));
+    if (auto frame_ids = target.get_array("frameIds"sv); frame_ids.has_value())
+        frame_target.set("frameIds"sv, *frame_ids);
+
+    auto files = injection.get_array("files"sv);
+    JsonObject details;
+
+    if (function == "executeScript"sv) {
+        details.set("kind"sv, "script"sv);
+        details.set("world"sv, injection.get_string("world"sv).value_or("ISOLATED"_string));
+
+        JsonArray sources;
+        if (files.has_value()) {
+            for (auto const& file : files->values()) {
+                if (!file.is_string())
+                    continue;
+                auto source = read_extension_text_file(extension, file.as_string());
+                if (source.is_error()) {
+                    complete(error(MUST(String::formatted("Could not load file: '{}'.", file.as_string()))));
+                    return;
+                }
+                JsonObject entry;
+                entry.set("path"sv, file.as_string());
+                entry.set("source"sv, source.release_value());
+                sources.must_append(move(entry));
+            }
+        } else if (auto func = injection.get_string("func"sv); func.has_value()) {
+            // The runtime sends the source of the function, which runs with the arguments given.
+            auto args = injection.get_array("args"sv).value_or({});
+            JsonObject entry;
+            entry.set("path"sv, "_injected_function.js"sv);
+            entry.set("source"sv, MUST(String::formatted("({}).apply(null, {});", *func, args.serialized())));
+            sources.must_append(move(entry));
+        } else {
+            complete(error("Exactly one of 'func' and 'files' must be specified"sv));
+            return;
+        }
+        details.set("sources"sv, move(sources));
+    } else {
+        details.set("kind"sv, function == "insertCSS"sv ? "insert_css"sv : "remove_css"sv);
+
+        StringBuilder css;
+        if (auto code = injection.get_string("css"sv); code.has_value()) {
+            css.append(*code);
+        } else if (files.has_value()) {
+            for (auto const& file : files->values()) {
+                if (!file.is_string())
+                    continue;
+                auto source = read_extension_text_file(extension, file.as_string());
+                if (source.is_error()) {
+                    complete(error(MUST(String::formatted("Could not load file: '{}'.", file.as_string()))));
+                    return;
+                }
+                css.append(source.value());
+                css.append('\n');
+            }
+        } else {
+            complete(error("Exactly one of 'css' and 'files' must be specified"sv));
+            return;
+        }
+        details.set("css"sv, MUST(css.to_string()));
+    }
+
+    auto returns_results = function == "executeScript"sv;
+    inject(*view, extension, frame_target, details, [complete = move(complete), returns_results](JsonArray results) mutable {
+        complete(returns_results ? result(results) : undefined_result());
+    });
+}
+
+void ExtensionHost::inject(ViewImplementation& view, LoadedExtension const& extension, JsonObject const& target, JsonObject const& details, Function<void(JsonArray)> on_complete)
+{
+    // A frame is hosted by one page, but the frames of a tab may be hosted by several.
+    Optional<u64> frame_id;
+    if (auto frame_ids = target.get_array("frameIds"sv); frame_ids.has_value() && frame_ids->size() == 1)
+        frame_id = frame_ids->at(0).get_integer<u64>();
+    auto pages = pages_hosting_frames_of(view, target.get_array("frameIds"sv).has_value() ? frame_id : Optional<u64> { 0 });
+    if (target.get_bool("allFrames"sv).value_or(false) || (target.get_array("frameIds"sv).has_value() && !frame_id.has_value()))
+        pages = pages_hosting_frames_of(view, {});
+    if (pages.is_empty()) {
+        on_complete({});
+        return;
+    }
+
+    struct State : RefCounted<State> {
+        Function<void(JsonArray)> on_complete;
+        JsonArray results;
+        size_t remaining { 0 };
+    };
+    auto state = make_ref_counted<State>();
+    state->on_complete = move(on_complete);
+    state->remaining = pages.size();
+
+    for (auto& page : pages) {
+        auto dispatch_id = ++m_next_dispatch_id;
+        m_pending_dispatches.set(dispatch_id, [state](Optional<String> results_json) {
+            if (results_json.has_value()) {
+                if (auto results = JsonParser::parse(*results_json); !results.is_error() && results.value().is_array()) {
+                    results.value().as_array().for_each([&](auto const& result) { state->results.must_append(result); });
+                }
+            }
+            if (--state->remaining == 0) {
+                // The top-level frame comes first, as in Chromium.
+                auto frame_id_of_result = [](JsonValue const& result) { return result.as_object().get_u64("frameId"sv).value_or(0); };
+                quick_sort(state->results.values(), [&](JsonValue const& a, JsonValue const& b) {
+                    return frame_id_of_result(a) < frame_id_of_result(b);
+                });
+                state->on_complete(move(state->results));
+            }
+        });
+        page->async_inject_into_extension_frames(extension.id, target.serialized(), details.serialized(), dispatch_id);
+    }
+}
+
+bool ExtensionHost::dispatches_events() const
+{
+    return m_dispatches_events && !Application::the().extensions().is_empty();
+}
+
+// The events of the tabs and webNavigation APIs go to the pages of extensions, not to their content scripts.
+void ExtensionHost::broadcast_to_extension_pages(StringView event, JsonArray const& arguments)
+{
+    JsonObject target;
+    target.set("contextType"sv, "extension_page"sv);
+
+    for (auto const& extension : Application::the().extensions()) {
+        Vector<ViewImplementation&> views;
+        ViewImplementation::for_each_view([&](ViewImplementation& view) {
+            if (Application::the().extension_background_view(extension.id) == &view || (view.url().scheme() == "chrome-extension"sv && view.url().serialized_host() == extension.id))
+                views.append(view);
+            return IterationDecision::Continue;
+        });
+        for (auto& view : views)
+            dispatch_event(view, extension.id, target, event, arguments, [](auto) { });
+    }
+}
+
+void ExtensionHost::tab_did_update(ViewImplementation& view, JsonObject change_info)
+{
+    auto tab = tab_object_with_id(static_cast<i64>(view.view_id()));
+    if (!tab.has_value())
+        return;
+
+    JsonArray arguments;
+    arguments.must_append(static_cast<i64>(view.view_id()));
+    arguments.must_append(move(change_info));
+    arguments.must_append(tab.release_value());
+    broadcast_to_extension_pages("tabs.onUpdated"sv, arguments);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/webNavigation#event-onCommitted
+void ExtensionHost::navigable_did_commit(CanonicalNavigable const& navigable)
+{
+    if (!dispatches_events())
+        return;
+    auto view = navigable.top_level_traversable().view();
+    if (!view.has_value() || !is_tab_view(*view))
+        return;
+    auto tab_id = static_cast<i64>(view->view_id());
+
+    if (navigable.is_top_level_traversable() && !m_announced_tabs.contains(view->view_id())) {
+        m_announced_tabs.set(view->view_id());
+        if (auto tab = tab_object_with_id(tab_id); tab.has_value()) {
+            JsonArray arguments;
+            arguments.must_append(tab.release_value());
+            broadcast_to_extension_pages("tabs.onCreated"sv, arguments);
+        }
+    }
+
+    auto details = frame_details_for(navigable);
+    details.set("tabId"sv, tab_id);
+    details.set("processId"sv, -1);
+    details.set("timeStamp"sv, milliseconds_since_epoch());
+    details.set("transitionType"sv, "link"sv);
+    details.set("transitionQualifiers"sv, JsonArray {});
+    JsonArray arguments;
+    arguments.must_append(move(details));
+    broadcast_to_extension_pages("webNavigation.onCommitted"sv, arguments);
+
+    if (navigable.is_top_level_traversable()) {
+        JsonObject change_info;
+        change_info.set("status"sv, "loading"sv);
+        change_info.set("url"sv, navigable.active_document_url().serialize());
+        tab_did_update(*view, move(change_info));
+    }
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/webNavigation#event-onHistoryStateUpdated
+// https://developer.chrome.com/docs/extensions/reference/api/webNavigation#event-onReferenceFragmentUpdated
+void ExtensionHost::navigable_did_navigate_within_document(CanonicalNavigable const& navigable, URL::URL const& previous_url)
+{
+    if (!dispatches_events())
+        return;
+    auto view = navigable.top_level_traversable().view();
+    if (!view.has_value() || !is_tab_view(*view))
+        return;
+
+    auto const& url = navigable.active_document_url();
+    // FIXME: Chromium tells a fragment navigation from history.pushState(), even to a URL that differs only in its
+    //        fragment. The canonical side is not told which navigation this was, so it goes by the URLs.
+    auto only_fragment_changed = url.equals(previous_url, URL::ExcludeFragment::Yes);
+
+    auto details = frame_details_for(navigable);
+    details.set("tabId"sv, static_cast<i64>(view->view_id()));
+    details.set("processId"sv, -1);
+    details.set("timeStamp"sv, milliseconds_since_epoch());
+    details.set("transitionType"sv, "link"sv);
+    details.set("transitionQualifiers"sv, JsonArray {});
+    JsonArray arguments;
+    arguments.must_append(move(details));
+    broadcast_to_extension_pages(only_fragment_changed ? "webNavigation.onReferenceFragmentUpdated"sv : "webNavigation.onHistoryStateUpdated"sv, arguments);
+
+    if (navigable.is_top_level_traversable()) {
+        JsonObject change_info;
+        change_info.set("url"sv, url.serialize());
+        tab_did_update(*view, move(change_info));
+    }
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onUpdated
+void ExtensionHost::view_did_finish_load(ViewImplementation& view)
+{
+    if (m_dispatches_events && Application::the().is_extension_background_view(view)) {
+        for (auto const& extension : Application::the().extensions()) {
+            if (Application::the().extension_background_view(extension.id) == &view)
+                background_page_did_load(extension);
+        }
+        return;
+    }
+
+    if (!dispatches_events() || !is_tab_view(view))
+        return;
+
+    if (view.has_traversable()) {
+        auto details = frame_details_for(view.traversable());
+        details.set("tabId"sv, static_cast<i64>(view.view_id()));
+        details.set("processId"sv, -1);
+        details.set("timeStamp"sv, milliseconds_since_epoch());
+        JsonArray arguments;
+        arguments.must_append(move(details));
+        broadcast_to_extension_pages("webNavigation.onCompleted"sv, arguments);
+    }
+
+    JsonObject change_info;
+    change_info.set("status"sv, "complete"sv);
+    tab_did_update(view, move(change_info));
+}
+
+void ExtensionHost::view_did_change_title(ViewImplementation& view)
+{
+    if (!dispatches_events() || !is_tab_view(view) || !m_announced_tabs.contains(view.view_id()))
+        return;
+    JsonObject change_info;
+    change_info.set("title"sv, view.title().to_well_formed_utf8());
+    tab_did_update(view, move(change_info));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onRemoved
+void ExtensionHost::view_will_be_destroyed(u64 view_id)
+{
+    if (!m_announced_tabs.remove(view_id) || !dispatches_events())
+        return;
+
+    JsonObject remove_info;
+    remove_info.set("windowId"sv, window_id);
+    remove_info.set("isWindowClosing"sv, false);
+    JsonArray arguments;
+    arguments.must_append(static_cast<i64>(view_id));
+    arguments.must_append(move(remove_info));
+    broadcast_to_extension_pages("tabs.onRemoved"sv, arguments);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onActivated
+void ExtensionHost::active_view_did_change(Optional<u64> view_id)
+{
+    if (m_active_view_id == view_id)
+        return;
+    m_active_view_id = view_id;
+    if (!view_id.has_value() || !dispatches_events())
+        return;
+    auto view = tab_view_with_id(static_cast<i64>(*view_id));
+    if (!view.has_value())
+        return;
+
+    JsonObject active_info;
+    active_info.set("tabId"sv, static_cast<i64>(*view_id));
+    active_info.set("windowId"sv, window_id);
+    JsonArray arguments;
+    arguments.must_append(move(active_info));
+    broadcast_to_extension_pages("tabs.onActivated"sv, arguments);
+}
+
+ExtensionHost::ExtensionHost() = default;
+ExtensionHost::~ExtensionHost() = default;
+
+HistoryStore* ExtensionHost::history_store()
+{
+    if (m_tried_opening_history)
+        return m_history_store.ptr();
+    m_tried_opening_history = true;
+
+    if (Application::browser_options().disable_sql_database == DisableSQLDatabase::Yes)
+        return nullptr;
+
+    auto database = Database::Database::create(Application::profile().paths().data, "History"sv);
+    if (database.is_error()) {
+        warnln("Extensions: Unable to open the history database: {}", database.error());
+        return nullptr;
+    }
+    auto store = HistoryStore::create(*database.value());
+    if (store.is_error()) {
+        warnln("Extensions: Unable to read the history: {}", store.error());
+        return nullptr;
+    }
+    m_history_database = database.release_value();
+    m_history_store = store.release_value();
+    return m_history_store.ptr();
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/history
+void ExtensionHost::history_call(StringView function, JsonArray const& arguments, Completion complete)
+{
+    if (function != "search"sv) {
+        complete(error(MUST(String::formatted("chrome.history.{} is not implemented yet", function))));
+        return;
+    }
+
+    auto query = arguments.is_empty() || !arguments.at(0).is_object() ? JsonObject {} : arguments.at(0).as_object();
+    auto text = query.get_string("text"sv).value_or({});
+    // Without a start time, Chromium searches the last 24 hours.
+    auto start_time = query.get_double_with_precision_loss("startTime"sv).value_or(static_cast<double>(milliseconds_since_epoch()) - 24 * 60 * 60 * 1000);
+    auto end_time = query.get_double_with_precision_loss("endTime"sv);
+    auto max_results = query.get_integer<i64>("maxResults"sv).value_or(100);
+
+    JsonArray items;
+    auto* store = history_store();
+    if (store && max_results > 0) {
+        // The entries come most recent first, so those before the start time end the search.
+        auto entries = store->list_entries(text, 0, end_time.has_value() ? 1000 : static_cast<size_t>(max_results));
+        for (auto const& entry : entries) {
+            auto visited = static_cast<double>(entry.last_visited_time.milliseconds_since_epoch());
+            if (end_time.has_value() && visited > *end_time)
+                continue;
+            if (visited < start_time || items.size() >= static_cast<size_t>(max_results))
+                break;
+            JsonObject item;
+            item.set("id"sv, entry.url);
+            item.set("url"sv, entry.url);
+            item.set("title"sv, entry.title.value_or({}));
+            item.set("lastVisitTime"sv, visited);
+            item.set("visitCount"sv, entry.visit_count);
+            item.set("typedCount"sv, entry.direct_visit_count);
+            items.must_append(move(item));
+        }
+    }
+    complete(result(items));
+}
+
+// The bookmarks that the UI keeps, as the nodes of the bookmarks API. Like Chromium, the root holds the bookmarks
+// bar, which holds the bookmarks, and the other bookmarks, which are none.
+static JsonObject bookmark_tree()
+{
+    auto path = LexicalPath::join(Application::profile().paths().config, "Bookmarks.json"sv).string();
+    JsonArray items;
+    if (auto saved = read_json_file(path); !saved.is_error()) {
+        if (auto saved_items = saved.value().get_array("items"sv); saved_items.has_value())
+            items = *saved_items;
+    }
+
+    Function<JsonObject(JsonObject const&, StringView, size_t)> node_for = [&](JsonObject const& item, StringView parent_id, size_t index) {
+        JsonObject node;
+        node.set("id"sv, item.get_string("id"sv).value_or({}));
+        node.set("parentId"sv, parent_id);
+        node.set("index"sv, static_cast<i64>(index));
+        node.set("title"sv, item.get_string("title"sv).value_or({}));
+        if (auto date_added = item.get_integer<i64>("dateAdded"sv); date_added.has_value())
+            node.set("dateAdded"sv, *date_added);
+        if (item.get_string("type"sv).value_or({}) == "folder"sv) {
+            JsonArray children;
+            auto id = item.get_string("id"sv).value_or({});
+            if (auto item_children = item.get_array("children"sv); item_children.has_value()) {
+                for (size_t i = 0; i < item_children->size(); ++i) {
+                    if (item_children->at(i).is_object())
+                        children.must_append(node_for(item_children->at(i).as_object(), id, i));
+                }
+            }
+            node.set("children"sv, move(children));
+        } else {
+            node.set("url"sv, item.get_string("url"sv).value_or({}));
+        }
+        return node;
+    };
+
+    auto folder = [](StringView id, StringView title, size_t index, JsonArray children) {
+        JsonObject node;
+        node.set("id"sv, id);
+        node.set("parentId"sv, "0"sv);
+        node.set("index"sv, static_cast<i64>(index));
+        node.set("title"sv, title);
+        node.set("children"sv, move(children));
+        return node;
+    };
+
+    JsonArray bar_children;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (items.at(i).is_object())
+            bar_children.must_append(node_for(items.at(i).as_object(), "1"sv, i));
+    }
+
+    JsonArray root_children;
+    root_children.must_append(folder("1"sv, "Bookmarks bar"sv, 0, move(bar_children)));
+    root_children.must_append(folder("2"sv, "Other bookmarks"sv, 1, {}));
+
+    JsonObject root;
+    root.set("id"sv, "0"sv);
+    root.set("title"sv, ""sv);
+    root.set("children"sv, move(root_children));
+    return root;
+}
+
+static void for_each_bookmark_node(JsonObject const& node, Function<void(JsonObject const&)> const& callback)
+{
+    callback(node);
+    if (auto children = node.get_array("children"sv); children.has_value()) {
+        children->for_each([&](auto const& child) {
+            if (child.is_object())
+                for_each_bookmark_node(child.as_object(), callback);
+        });
+    }
+}
+
+static JsonObject without_children(JsonObject node)
+{
+    node.remove("children"sv);
+    return node;
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/bookmarks
+void ExtensionHost::bookmarks_call(StringView function, JsonArray const& arguments, Completion complete)
+{
+    auto argument = arguments.is_empty() ? JsonValue {} : arguments.at(0);
+    auto tree = bookmark_tree();
+
+    if (function == "getTree"sv) {
+        JsonArray roots;
+        roots.must_append(move(tree));
+        return complete(result(roots));
+    }
+
+    auto ids_of = [&](JsonValue const& value) {
+        Vector<String> ids;
+        if (value.is_string())
+            ids.append(value.as_string());
+        else if (value.is_array())
+            value.as_array().for_each([&](auto const& id) { if (id.is_string()) ids.append(id.as_string()); });
+        return ids;
+    };
+
+    if (function == "get"sv || function == "getChildren"sv || function == "getSubTree"sv) {
+        auto ids = ids_of(argument);
+        JsonArray nodes;
+        for_each_bookmark_node(tree, [&](JsonObject const& node) {
+            auto id = node.get_string("id"sv).value_or({});
+            if (!ids.contains_slow(id))
+                return;
+            if (function == "getChildren"sv) {
+                if (auto children = node.get_array("children"sv); children.has_value())
+                    children->for_each([&](auto const& child) { nodes.must_append(without_children(child.as_object())); });
+            } else {
+                nodes.must_append(function == "get"sv ? without_children(node) : node);
+            }
+        });
+        if (nodes.is_empty() && function != "getChildren"sv)
+            return complete(error("Can't find bookmark for id."sv));
+        return complete(result(nodes));
+    }
+
+    if (function == "search"sv || function == "getRecent"sv) {
+        // A search matches bookmarks whose URL or title has every word of the query.
+        Vector<String> words;
+        Optional<String> url;
+        Optional<String> title;
+        if (argument.is_string()) {
+            for (auto word : argument.as_string().bytes_as_string_view().split_view(' '))
+                words.append(MUST(String::from_utf8(word)));
+        } else if (argument.is_object()) {
+            if (auto query = argument.as_object().get_string("query"sv); query.has_value()) {
+                for (auto word : query->bytes_as_string_view().split_view(' '))
+                    words.append(MUST(String::from_utf8(word)));
+            }
+            if (auto value = argument.as_object().get_string("url"sv); value.has_value())
+                url = *value;
+            if (auto value = argument.as_object().get_string("title"sv); value.has_value())
+                title = *value;
+        }
+
+        Vector<JsonObject> bookmarks;
+        for_each_bookmark_node(tree, [&](JsonObject const& node) {
+            auto node_url = node.get_string("url"sv);
+            if (!node_url.has_value())
+                return;
+            auto node_title = node.get_string("title"sv).value_or({});
+            if (url.has_value() && *url != *node_url)
+                return;
+            if (title.has_value() && *title != node_title)
+                return;
+            for (auto const& word : words) {
+                if (!node_url->contains(word, CaseSensitivity::CaseInsensitive) && !node_title.contains(word, CaseSensitivity::CaseInsensitive))
+                    return;
+            }
+            bookmarks.append(node);
+        });
+
+        if (function == "getRecent"sv) {
+            quick_sort(bookmarks, [](auto const& a, auto const& b) {
+                return a.get_double_with_precision_loss("dateAdded"sv).value_or(0) > b.get_double_with_precision_loss("dateAdded"sv).value_or(0);
+            });
+            auto count = argument.get_integer<i64>().value_or(0);
+            if (count >= 0 && bookmarks.size() > static_cast<size_t>(count))
+                bookmarks.shrink(static_cast<size_t>(count));
+        }
+
+        JsonArray nodes;
+        for (auto& bookmark : bookmarks)
+            nodes.must_append(move(bookmark));
+        return complete(result(nodes));
+    }
+
+    // FIXME: Change bookmarks, which the UI keeps, through the UI.
+    complete(error(MUST(String::formatted("chrome.bookmarks.{} is not implemented yet", function))));
 }
 
 }

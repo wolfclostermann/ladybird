@@ -258,6 +258,7 @@ private:
     virtual void set_extensions(String extensions_json) override;
     virtual void complete_extension_api_call(Web::PageId, u64 call_id, bool is_error, String payload) override;
     virtual void dispatch_extension_event(Web::PageId, String extension_id, String target_json, String event, String arguments_json, u64 dispatch_id) override;
+    virtual void inject_into_extension_frames(Web::PageId, String extension_id, String target_json, String details_json, u64 dispatch_id) override;
 
     virtual void set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host) override;
     virtual void set_force_dark_for_local_roots(Web::PageId page_id, bool enabled) override;

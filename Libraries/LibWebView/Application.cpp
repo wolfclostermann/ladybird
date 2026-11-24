@@ -228,6 +228,9 @@ OwnPtr<MediaSessionPlatformBackend> Application::create_media_session_platform_b
 
 Application::~Application()
 {
+    m_extension_host.stop_dispatching_events();
+    m_extension_background_views.clear();
+
 #if !defined(AK_OS_WINDOWS)
     // No event loop runs the handlers during teardown, so a signal from here on takes its default action again.
     for (auto handler : m_session_signal_handlers)

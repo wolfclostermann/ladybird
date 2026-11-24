@@ -8,6 +8,11 @@
 
 #include <AK/Function.h>
 #include <AK/HashMap.h>
+#include <AK/HashTable.h>
+#include <AK/OwnPtr.h>
+#include <AK/RefPtr.h>
+#include <LibDatabase/Forward.h>
+#include <LibURL/Forward.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/Optional.h>
@@ -26,7 +31,8 @@ class WEBVIEW_API ExtensionHost {
     AK_MAKE_NONMOVABLE(ExtensionHost);
 
 public:
-    ExtensionHost() = default;
+    ExtensionHost();
+    ~ExtensionHost();
 
     struct CallResult {
         bool is_error { false };
@@ -47,6 +53,17 @@ public:
     // Dispatches an event to every context of an extension, in every view.
     void broadcast_event(String const& extension_id, StringView event, JsonArray const& arguments);
 
+    // What happens to tabs and their frames, which the events of the tabs and webNavigation APIs tell extensions of.
+    void navigable_did_commit(CanonicalNavigable const&);
+    void navigable_did_navigate_within_document(CanonicalNavigable const&, URL::URL const& previous_url);
+    void view_did_finish_load(ViewImplementation&);
+    void view_did_change_title(ViewImplementation&);
+    void view_will_be_destroyed(u64 view_id);
+    void active_view_did_change(Optional<u64> view_id);
+
+    // Called as the application tears down, after which no event is dispatched.
+    void stop_dispatching_events() { m_dispatches_events = false; }
+
 private:
     struct Context {
         String type;
@@ -60,6 +77,19 @@ private:
     void tabs_send_message(LoadedExtension const&, JsonArray const& arguments, Completion);
     void storage_call(LoadedExtension const&, StringView area, StringView function, JsonArray const& arguments, Completion);
 
+    void tabs_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
+    void scripting_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
+    void history_call(StringView function, JsonArray const& arguments, Completion);
+    void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
+    HistoryStore* history_store();
+
+    void inject(ViewImplementation&, LoadedExtension const&, JsonObject const& target, JsonObject const& details, Function<void(JsonArray)> on_complete);
+
+    bool dispatches_events() const;
+    void background_page_did_load(LoadedExtension const&);
+    void broadcast_to_extension_pages(StringView event, JsonArray const& arguments);
+    void tab_did_update(ViewImplementation&, JsonObject change_info);
+
     JsonObject sender_for(WebContentPage&, LoadedExtension const&, Context const&) const;
     JsonObject& storage_area(LoadedExtension const&, StringView area);
     void save_storage(LoadedExtension const&);
@@ -68,6 +98,16 @@ private:
 
     HashMap<u64, Function<void(Optional<String>)>> m_pending_dispatches;
     u64 m_next_dispatch_id { 0 };
+    bool m_dispatches_events { true };
+
+    // The tabs that extensions were told of, which they are told are gone once they are.
+    HashTable<u64> m_announced_tabs;
+    Optional<u64> m_active_view_id;
+
+    // Like Chromium, which holds messages for a service worker until it starts, messages wait for a background page
+    // until it has loaded.
+    HashTable<String> m_loaded_background_pages;
+    HashMap<String, Vector<Function<void()>>> m_waiting_for_background_page;
 
     struct ExtensionStorage {
         JsonObject local;
@@ -76,6 +116,11 @@ private:
         JsonObject managed;
     };
     HashMap<String, ExtensionStorage> m_storage;
+
+    // NB: The UI keeps the history, in a database this reads too.
+    RefPtr<Database::Database> m_history_database;
+    OwnPtr<HistoryStore> m_history_store;
+    bool m_tried_opening_history { false };
 };
 
 // The tab object of a view, as the tabs API describes one: https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab

@@ -26,7 +26,13 @@
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
+#include <LibWeb/HTML/EventLoop/EventLoop.h>
+#include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
 #include <LibWeb/HTML/Window.h>
+#include <LibWeb/Page/Page.h>
+#include <LibJS/Runtime/Error.h>
+#include <LibJS/Runtime/NativeFunction.h>
+#include <LibGC/Root.h>
 
 namespace Web::Extensions {
 
@@ -296,7 +302,176 @@ Utf16String style_sheet_for_document(DOM::Document const& document)
             builder.append(content_script.css.utf16_view());
         }
     }
+    for (auto const& css : document.injected_extension_css()) {
+        if (!builder.is_empty())
+            builder.append_ascii('\n');
+        builder.append(css.utf16_view());
+    }
     return builder.to_string();
+}
+
+// Waits for the value of injected code to settle, as chrome.scripting does for a promise, and reports its JSON.
+static constexpr StringView report_result_source = R"~~~(
+(value, report) => {
+    Promise.resolve(value).then(
+        (result) => report(JSON.stringify(result) ?? "null"),
+        (error) => {
+            reportError(error);
+            report("null");
+        });
+}
+)~~~"sv;
+
+static JS::ThrowCompletionOr<JS::Value> evaluate_in_realm(JS::Realm& realm, HTML::EnvironmentSettingsObject& settings, String const& filename, Utf16String source)
+{
+    auto source_code = JS::SourceCode::create(Utf16String::from_utf8(filename), source);
+    auto parsed = JS::ParsedProgram::parse(move(source), JS::ProgramType::Script, 1);
+    auto script = JS::create_script(move(parsed), move(source_code), realm, filename, nullptr);
+    if (script.is_error())
+        return realm.vm().throw_completion<JS::SyntaxError>(script.error().first().to_utf16_string());
+
+    HTML::prepare_to_run_script(settings);
+    auto result = realm.vm().run(*script.value());
+    HTML::clean_up_after_running_script(settings);
+    return result;
+}
+
+struct InjectionResults : RefCounted<InjectionResults> {
+    // NB: The results go to the UI process as JSON, and nothing that reports one holds a cell.
+    GC_HOLDS_NO_CELL_EDGES;
+
+    JsonArray results;
+    size_t remaining { 0 };
+    Function<void(String)> on_complete;
+
+    void add(u64 frame_id, Optional<String> result_json)
+    {
+        JsonObject result;
+        result.set("frameId"sv, frame_id);
+        if (result_json.has_value()) {
+            if (auto value = JsonParser::parse(*result_json); !value.is_error())
+                result.set("result"sv, value.release_value());
+        }
+        results.must_append(move(result));
+        if (--remaining == 0 && on_complete) {
+            auto function = move(on_complete);
+            function(results.serialized());
+        }
+    }
+};
+
+static void inject_into_document(DOM::Document& document, Extension const& extension, JsonObject const& details, NonnullRefPtr<InjectionResults> results)
+{
+    auto frame_id = frame_id_of(document);
+    auto kind = details.get_string("kind"sv).value_or({});
+
+    if (kind == "insert_css"sv || kind == "remove_css"sv) {
+        auto css = Utf16String::from_utf8(details.get_string("css"sv).value_or({}));
+        if (kind == "insert_css"sv)
+            document.add_injected_extension_css(move(css));
+        else
+            document.remove_injected_extension_css(css);
+        results->add(frame_id, {});
+        return;
+    }
+
+    auto& isolated_world = isolated_world_for(document, extension);
+    auto& realm = details.get_string("world"sv).value_or({}) == "MAIN"sv ? HTML::relevant_realm(*document.window()) : isolated_world;
+    auto& settings = document.relevant_settings_object();
+
+    JS::Value value = JS::js_undefined();
+    if (auto sources = details.get_array("sources"sv); sources.has_value()) {
+        for (auto const& source : sources->values()) {
+            if (!source.is_object())
+                continue;
+            auto path = source.as_object().get_string("path"sv).value_or("_injected.js"_string);
+            auto filename = MUST(String::formatted("chrome-extension://{}/{}", extension.id, path));
+            auto result = evaluate_in_realm(realm, settings, filename, Utf16String::from_utf8(source.as_object().get_string("source"sv).value_or({})));
+            if (result.is_error()) {
+                HTML::report_an_exception(realm.global_object(), result.error_value());
+                value = JS::js_undefined();
+                break;
+            }
+            value = result.release_value();
+        }
+    }
+
+    // The value is serialized in the isolated world, which the page cannot tamper with.
+    auto& vm = isolated_world.vm();
+    auto reporter = evaluate_in_realm(isolated_world, settings, MUST(String::formatted("chrome-extension://{}/_scripting.js", extension.id)), Utf16String::from_utf8(report_result_source));
+    if (reporter.is_error() || !reporter.value().is_function()) {
+        results->add(frame_id, {});
+        return;
+    }
+
+    auto report = JS::NativeFunction::create(
+        isolated_world,
+        GC::create_function<JS::ThrowCompletionOr<JS::Value>(JS::VM&)>(vm.heap(), GC::captures(results, frame_id), [](auto& results, auto& frame_id, JS::VM& vm) -> JS::ThrowCompletionOr<JS::Value> {
+            results->add(frame_id, TRY(vm.argument(0).to_utf16_string(vm)).to_well_formed_utf8());
+            return JS::js_undefined();
+        }),
+        1,
+        "report"_utf16_fly_string,
+        &isolated_world);
+
+    HTML::TemporaryExecutionContext execution_context { isolated_world, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
+    if (auto result = JS::call(vm, reporter.value(), JS::js_undefined(), value, report); result.is_error()) {
+        HTML::report_an_exception(isolated_world.global_object(), result.error_value());
+        results->add(frame_id, {});
+    }
+}
+
+void inject_into_frames(Page& page, String const& extension_id, String const& target_json, String const& details_json, Function<void(String)> on_complete)
+{
+    auto const* extension = extension_with_id(extension_id);
+    auto target = JsonParser::parse(target_json);
+    auto details = JsonParser::parse(details_json);
+    if (!extension || target.is_error() || !target.value().is_object() || details.is_error() || !details.value().is_object()) {
+        on_complete("[]"_string);
+        return;
+    }
+
+    auto all_frames = target.value().as_object().get_bool("allFrames"sv).value_or(false);
+    Optional<Vector<u64>> frame_ids;
+    if (auto ids = target.value().as_object().get_array("frameIds"sv); ids.has_value()) {
+        frame_ids = Vector<u64> {};
+        for (auto const& id : ids->values()) {
+            if (auto number = id.get_integer<u64>(); number.has_value())
+                frame_ids->append(*number);
+        }
+    }
+
+    Vector<GC::Root<DOM::Document>> documents;
+    for (auto const& navigable : page.hosted_navigables()) {
+        auto document = navigable->active_document();
+        if (!document || !document->window())
+            continue;
+        auto frame_id = frame_id_of(*document);
+        if (frame_ids.has_value() ? !frame_ids->contains_slow(frame_id) : (!all_frames && frame_id != 0))
+            continue;
+        documents.append(GC::make_root(*document));
+    }
+
+    if (documents.is_empty()) {
+        on_complete("[]"_string);
+        return;
+    }
+
+    auto results = make_ref_counted<InjectionResults>();
+    results->remaining = documents.size();
+    results->on_complete = move(on_complete);
+
+    for (auto& document : documents) {
+        HTML::queue_global_task(HTML::Task::Source::DOMManipulation, HTML::relevant_realm(*document->window()).global_object(), GC::create_function<void()>(document->heap(), GC::captures(document, results, extension_id, details_json), [](auto& document, auto& results, auto& extension_id, auto& details_json) {
+            auto const* extension = extension_with_id(extension_id);
+            auto details = JsonParser::parse(details_json);
+            if (!extension || !document->window() || !document->navigable()) {
+                results->add(frame_id_of(*document), {});
+                return;
+            }
+            inject_into_document(*document, *extension, details.value().as_object(), results);
+        }));
+    }
 }
 
 }

@@ -58,7 +58,13 @@ WEB_API bool has_extensions();
 // Runs the content scripts of document that are to run at run_at, and those of the earlier points that have not run yet.
 void run_content_scripts(DOM::Document&, RunAt);
 
-// The CSS of the content scripts that match document.
+// The CSS of the content scripts that match document, and that extensions inserted into it.
 Utf16String style_sheet_for_document(DOM::Document const&);
+
+// Runs code, or inserts or removes CSS, in the frames of page that target_json picks, for chrome.scripting. target_json
+// is {"allFrames": bool, "frameIds": [n, ...]}, picking only the top-level frame without either. details_json is
+// {"kind": "script", "world": "ISOLATED" or "MAIN", "sources": [{"path", "source"}, ...]} or {"kind": "insert_css" or
+// "remove_css", "css": "..."}. Calls on_complete with the JSON array of each frame's {"frameId", "result"}.
+WEB_API void inject_into_frames(Page&, String const& extension_id, String const& target_json, String const& details_json, Function<void(String)> on_complete);
 
 }

@@ -115,6 +115,7 @@ void Application::ui_did_start()
 void Application::set_active_view(Optional<u64> view_id)
 {
     m_active_view_id = view_id;
+    extension_host().active_view_did_change(view_id);
 }
 
 Optional<WebView::ViewImplementation&> Application::active_web_view() const

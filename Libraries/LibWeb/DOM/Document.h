@@ -1875,6 +1875,9 @@ public:
     // The CSS of the content scripts of extensions that match this document.
     Utf16String const& extension_style_sheet();
     void invalidate_extension_style_sheet();
+    Vector<Utf16String> const& injected_extension_css() const { return m_injected_extension_css; }
+    void add_injected_extension_css(Utf16String);
+    void remove_injected_extension_css(Utf16String const&);
 
     // The contexts of the extensions whose code runs in this document, by extension ID.
     GC::Ptr<Extensions::ExtensionContext> extension_context(String const& extension_id) const
@@ -2557,6 +2560,7 @@ private:
     HashTable<Utf16FlyString> m_content_blocker_style_sheet_checked_ids;
 
     Optional<Utf16String> m_extension_style_sheet;
+    Vector<Utf16String> m_injected_extension_css;
     HashMap<String, GC::Ref<Extensions::ExtensionContext>> m_extension_contexts;
     u8 m_extension_content_scripts_run { 0 };
 

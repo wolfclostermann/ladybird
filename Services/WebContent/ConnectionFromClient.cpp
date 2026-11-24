@@ -3509,6 +3509,20 @@ void ConnectionFromClient::dispatch_extension_event(Web::PageId page_id, String 
     });
 }
 
+void ConnectionFromClient::inject_into_extension_frames(Web::PageId page_id, String extension_id, String target_json, String details_json, u64 dispatch_id)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value()) {
+        async_did_finish_extension_event(page_id, dispatch_id, true, "[]"_string);
+        return;
+    }
+
+    Web::Extensions::inject_into_frames(page->page(), extension_id, target_json, details_json, [weak_this = make_weak_ptr<ConnectionFromClient>(), page_id, dispatch_id](String results_json) {
+        if (auto* self = weak_this.ptr())
+            self->async_did_finish_extension_event(page_id, dispatch_id, true, results_json);
+    });
+}
+
 void ConnectionFromClient::set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host)
 {
     if (auto page = this->page(page_id); page.has_value() && page->page().has_local_traversable())

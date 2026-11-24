@@ -1215,6 +1215,22 @@ void Document::invalidate_extension_style_sheet()
         style_scope().invalidate_user_style_sheet();
 }
 
+// https://developer.chrome.com/docs/extensions/reference/api/scripting#method-insertCSS
+void Document::add_injected_extension_css(Utf16String css)
+{
+    m_injected_extension_css.append(move(css));
+    invalidate_extension_style_sheet();
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/scripting#method-removeCSS
+void Document::remove_injected_extension_css(Utf16String const& css)
+{
+    if (auto index = m_injected_extension_css.find_first_index(css); index.has_value()) {
+        m_injected_extension_css.remove(*index);
+        invalidate_extension_style_sheet();
+    }
+}
+
 void Document::set_extension_context(String const& extension_id, GC::Ref<Extensions::ExtensionContext> context)
 {
     m_extension_contexts.set(extension_id, context);

@@ -2489,8 +2489,10 @@ void CanonicalTraversable::finalize_a_same_document_navigation(HistoryOperation&
     // history entries. Keep those copies synchronized when the shared state is mutated.
     m_session_history.update_directive_state_value(target_entry->directive_state_id, target_entry->directive_state_value);
 
+    auto previous_url = target_navigable->active_document_url();
     target_navigable->set_active_session_history_entry(target_entry);
     target_navigable->send_replicated_state();
+    Application::the().extension_host().navigable_did_navigate_within_document(*target_navigable, previous_url);
 
     // 6. Apply the push/replace history step targetStep to traversable given historyHandling and userInvolvement.
     apply_the_push_or_replace_history_step(operation, *target_step, request.history_handling, request.user_involvement);

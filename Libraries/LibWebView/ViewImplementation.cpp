@@ -163,6 +163,7 @@ ViewImplementation::~ViewImplementation()
     // Leave the views before the permission manager hears: a one-time grant that ends with this view has it revoke
     // location in every view that shows the site, and this one is on its way out.
     all_views().remove(m_view_id);
+    Application::the().extension_host().view_will_be_destroyed(m_view_id);
     session().permission_manager->remove_view(view_id());
     if (m_top_level_traversable) {
         m_top_level_traversable->clear_ongoing_navigation();
@@ -444,6 +445,7 @@ void ViewImplementation::set_title(Utf16String title)
 
     if (on_title_change)
         on_title_change(m_title);
+    Application::the().extension_host().view_did_change_title(*this);
 }
 
 // A page sets its title and favicon as it starts up, often from script after it loaded, or once its favicon arrived.
