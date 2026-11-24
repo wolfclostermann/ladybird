@@ -42,6 +42,11 @@ static Vector<Extension>& extensions()
     return extensions;
 }
 
+bool url_bypasses_content_security_policy(URL::URL const& url)
+{
+    return url.scheme() == "chrome-extension"sv && has_extensions();
+}
+
 bool has_extensions()
 {
     return !extensions().is_empty();

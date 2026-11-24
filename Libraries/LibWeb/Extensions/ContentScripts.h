@@ -55,6 +55,11 @@ struct Extension {
 WEB_API ErrorOr<void> set_extensions_from_json(StringView);
 WEB_API bool has_extensions();
 
+// Whether a page's Content Security Policy leaves loads of url alone. As in Chromium and Firefox, a page's policy does
+// not govern the resources of extensions, which inject their own frames and styles into it. Which of its resources an
+// extension lets pages load is up to the extension.
+WEB_API bool url_bypasses_content_security_policy(URL::URL const&);
+
 // Runs the content scripts of document that are to run at run_at, and those of the earlier points that have not run yet.
 void run_content_scripts(DOM::Document&, RunAt);
 

@@ -17,6 +17,7 @@
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/ShadowRoot.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/Fetch/Fetching/ClientContextSnapshots.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/ResponseView.h>
@@ -160,6 +161,9 @@ void report_a_violation_found_in_another_process(HTML::EnvironmentSettingsObject
 // https://w3c.github.io/webappsec-csp/#should-block-navigation-request
 Directives::Directive::Result should_navigation_request_of_type_be_blocked_by_content_security_policy(NonnullRefPtr<Fetch::Infrastructure::Request> navigation_request, Directives::Directive::NavigationType navigation_type, Page& page)
 {
+    if (Extensions::url_bypasses_content_security_policy(navigation_request->current_url()))
+        return Directives::Directive::Result::Allowed;
+
     // 1. Let result be "Allowed".
     auto result = Directives::Directive::Result::Allowed;
 

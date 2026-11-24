@@ -9,6 +9,7 @@
 #include <LibWeb/ContentSecurityPolicy/Directives/FetchIntegration.h>
 #include <LibWeb/ContentSecurityPolicy/FetchIntegration.h>
 #include <LibWeb/ContentSecurityPolicy/PolicyList.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Responses.h>
 #include <LibWeb/HTML/PolicyContainers.h>
@@ -103,6 +104,9 @@ void report_content_security_policy_violations_for_request(Fetch::Infrastructure
 // https://w3c.github.io/webappsec-csp/#should-block-request
 Directives::Directive::Result should_request_be_blocked_by_content_security_policy(Fetch::Infrastructure::Request const& request, ViolationReporter const& report_violation)
 {
+    if (Extensions::url_bypasses_content_security_policy(request.current_url()))
+        return Directives::Directive::Result::Allowed;
+
     // 1. Let CSP list be request’s policy container's CSP list.
     auto const& csp_list = csp_list_governing_request(request);
 
@@ -136,6 +140,9 @@ Directives::Directive::Result should_request_be_blocked_by_content_security_poli
 // https://w3c.github.io/webappsec-csp/#should-block-response
 Directives::Directive::Result should_response_to_request_be_blocked_by_content_security_policy(Fetch::Infrastructure::Response const& response, Fetch::Infrastructure::Request const& request, ViolationReporter const& report_violation)
 {
+    if (Extensions::url_bypasses_content_security_policy(request.current_url()))
+        return Directives::Directive::Result::Allowed;
+
     // 1. Let CSP list be request’s policy container's CSP list.
     auto const& csp_list = csp_list_governing_request(request);
 
