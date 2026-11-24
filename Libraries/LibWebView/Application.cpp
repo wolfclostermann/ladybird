@@ -46,6 +46,7 @@
 #include <LibWebCommon/Page/InputEvent.h>
 #include <LibWebCommon/WebDriver/TimeoutsConfiguration.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/Extensions.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/CompositorClient.h>
 #include <LibWebView/CompositorPresentationClient.h>
@@ -361,6 +362,7 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
     bool disable_sandbox = false;
     bool force_video_decoder_server = false;
     Vector<ByteString> content_blocker_list_paths;
+    Vector<ByteString> extension_paths;
     Optional<StringView> resource_substitution_map_path;
     bool enable_autoplay = false;
     bool expose_experimental_interfaces = false;
@@ -490,6 +492,19 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
             return true;
         },
     });
+    args_parser.add_option(Core::ArgsParser::Option {
+        .argument_mode = Core::ArgsParser::OptionArgumentMode::Required,
+        .help_string = "Path to the directory of an unpacked extension to load. May be specified multiple times.",
+        .long_name = "load-extension",
+        .value_name = "path",
+        .accept_value = [&](ByteString value) {
+            if (value.is_empty())
+                return false;
+
+            extension_paths.append(move(value));
+            return true;
+        },
+    });
     args_parser.add_option(enable_autoplay, "Enable multimedia autoplay", "enable-autoplay");
     args_parser.add_option(expose_experimental_interfaces, "Expose experimental IDL interfaces", "expose-experimental-interfaces");
     args_parser.add_option(expose_internals_object, "Expose internals object", "expose-internals-object");
@@ -579,6 +594,7 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
         return Error::from_string_literal("--profile-output requires --profile-tool cpu");
 
     m_explicit_content_blocker_list_paths = move(content_blocker_list_paths);
+    m_extension_paths = move(extension_paths);
 
     m_browser_options = {
         .urls = {},
@@ -711,6 +727,8 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
 
     m_content_blocker_lists_directory = LexicalPath::join(profile().paths().data, "ContentBlocking/Lists"sv).string();
     rebuild_content_blocker_list_paths();
+
+    load_extensions();
 
     if (!m_settings->first_run_complete() && !m_browser_options.headless_mode.has_value()
         && !m_browser_options.webdriver_browser_endpoint.has_value()) {
@@ -879,6 +897,25 @@ Optional<UnixDateTime> Application::content_blocker_list_last_updated_at(StringV
     if (auto file_status = Core::File::stat(content_blocker_list_path(identifier)); !file_status.is_error())
         return UnixDateTime::from_seconds_since_epoch(file_status.value().st_mtime);
     return {};
+}
+
+void Application::load_extensions()
+{
+    m_extensions.clear();
+    for (auto const& path : m_extension_paths) {
+        auto extension = load_unpacked_extension(path);
+        if (extension.is_error()) {
+            warnln("Unable to load extension from {}: {}", path, extension.error());
+            continue;
+        }
+        dbgln("Loaded extension {} {} ({}) from {}", extension.value().name, extension.value().version, extension.value().id, extension.value().directory);
+        m_extensions.append(extension.release_value());
+    }
+
+    if (m_extensions.is_empty())
+        m_extensions_json.clear();
+    else
+        m_extensions_json = serialize_extensions_for_web_content(m_extensions);
 }
 
 void Application::rebuild_content_blocker_list_paths()
@@ -1208,6 +1245,9 @@ ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(
 
     if (m_content_blocker_list_buffer.has_value())
         client->async_set_content_blockers(*m_content_blocker_list_buffer);
+
+    if (m_extensions_json.has_value())
+        client->async_set_extensions(*m_extensions_json);
 
     m_web_content_clients.set(client);
     return client;

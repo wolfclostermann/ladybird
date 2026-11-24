@@ -52,6 +52,7 @@
 #include <LibWebView/DownloadStore.h>
 #include <LibWebView/ExternalURLHandler.h>
 #include <LibWebView/FileDownloader.h>
+#include <LibWebView/Extensions.h>
 #include <LibWebView/Forward.h>
 #include <LibWebView/LocalFileRoot.h>
 #include <LibWebView/MediaSessionCoordinator.h>
@@ -507,6 +508,7 @@ private:
     ErrorOr<bool> load_content_blocker_lists();
     void apply_content_blocker_settings();
     void rebuild_content_blocker_list_paths();
+    void load_extensions();
     ByteString content_blocker_list_path(StringView identifier) const;
     ErrorOr<void> save_content_blocker_list(ByteString const& path, ReadonlyBytes);
     enum class ContentBlockerListUpdateTrigger {
@@ -660,6 +662,9 @@ private:
         u8 redirect_count { 0 };
     };
     Vector<ByteString> m_explicit_content_blocker_list_paths;
+    Vector<ByteString> m_extension_paths;
+    Vector<LoadedExtension> m_extensions;
+    Optional<String> m_extensions_json;
     ByteString m_content_blocker_lists_directory;
     Vector<PendingContentBlockerListUpdate> m_pending_content_blocker_list_updates;
     Optional<PendingContentBlockerListUpdate> m_active_content_blocker_list_update;

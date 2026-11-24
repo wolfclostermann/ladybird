@@ -50,6 +50,7 @@
 #include <LibWeb/DOM/Attr.h>
 #include <LibWeb/DOM/CharacterData.h>
 #include <LibWeb/DOM/Document.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/Node.h>
@@ -3475,6 +3476,17 @@ void ConnectionFromClient::set_content_blockers(Core::AnonymousBuffer patterns_b
 
     if (had_cosmetic_rules || blocker.has_cosmetic_rules())
         m_page_host->invalidate_user_style();
+}
+
+void ConnectionFromClient::set_extensions(String extensions_json)
+{
+    if (auto result = Web::Extensions::set_extensions_from_json(extensions_json); result.is_error()) {
+        dbgln("Failed to set extensions: {}", result.error());
+        return;
+    }
+
+    // The CSS of the extensions' content scripts is part of each document's user style sheet.
+    m_page_host->invalidate_user_style();
 }
 
 void ConnectionFromClient::set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host)
