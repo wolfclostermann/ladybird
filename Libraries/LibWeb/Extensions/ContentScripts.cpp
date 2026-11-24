@@ -263,9 +263,15 @@ static void run_content_scripts_at(DOM::Document& document, RunAt run_at)
     }
 }
 
+// Extensions run in the documents that browsing contexts show, not in those that an SVG image is decoded into.
+static bool may_run_extensions_in(DOM::Document const& document)
+{
+    return document.window() && !document.is_decoded_svg();
+}
+
 void run_content_scripts(DOM::Document& document, RunAt run_at)
 {
-    if (!has_extensions() || !document.window())
+    if (!has_extensions() || !may_run_extensions_in(document))
         return;
 
     // Each point runs once, after the points before it, even if the document reached a later point without passing
@@ -289,7 +295,7 @@ void run_content_scripts(DOM::Document& document, RunAt run_at)
 
 Utf16String style_sheet_for_document(DOM::Document const& document)
 {
-    if (!has_extensions())
+    if (!has_extensions() || document.is_decoded_svg())
         return {};
 
     Utf16StringBuilder builder;
@@ -444,7 +450,7 @@ void inject_into_frames(Page& page, String const& extension_id, String const& ta
     Vector<GC::Root<DOM::Document>> documents;
     for (auto const& navigable : page.hosted_navigables()) {
         auto document = navigable->active_document();
-        if (!document || !document->window())
+        if (!document || !may_run_extensions_in(*document))
             continue;
         auto frame_id = frame_id_of(*document);
         if (frame_ids.has_value() ? !frame_ids->contains_slow(frame_id) : (!all_frames && frame_id != 0))
