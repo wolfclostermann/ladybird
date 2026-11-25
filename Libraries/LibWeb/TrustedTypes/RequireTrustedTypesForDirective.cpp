@@ -13,6 +13,7 @@
 #include <LibWeb/ContentSecurityPolicy/PolicyList.h>
 #include <LibWeb/ContentSecurityPolicy/Violation.h>
 #include <LibWeb/DOM/Document.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/DOMURL/DOMURL.h>
 #include <LibWeb/Fetch/Fetching/ClientContextSnapshots.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
@@ -135,6 +136,10 @@ ContentSecurityPolicy::Directives::Directive::Result require_trusted_types_for_p
 // https://w3c.github.io/trusted-types/dist/spec/#does-sink-require-trusted-types
 bool does_sink_require_trusted_types(JS::Object& global, Utf16View sink_group, IncludeReportOnlyPolicies include_report_only_policies)
 {
+    // AD-HOC: An extension's content script is not bound by the page's policy, as in Chromium.
+    if (Extensions::is_running_in_an_isolated_world(global.vm()))
+        return false;
+
     // 1. For each policy in global’s CSP list:
     auto const* csp_list = csp_list_of_global(global);
     if (!csp_list)

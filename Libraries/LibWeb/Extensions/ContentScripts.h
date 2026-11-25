@@ -55,6 +55,10 @@ struct Extension {
 WEB_API ErrorOr<void> set_extensions_from_json(StringView);
 WEB_API bool has_extensions();
 
+// Whether the script running in vm is an extension's, in an isolated world. As in Chromium, the page's Content Security
+// Policy does not govern what such a script does to the DOM: the styles it adds and the HTML it sets.
+WEB_API bool is_running_in_an_isolated_world(JS::VM&);
+
 // Whether a page's Content Security Policy leaves loads of url alone. As in Chromium and Firefox, a page's policy does
 // not govern the resources of extensions, which inject their own frames and styles into it. Which of its resources an
 // extension lets pages load is up to the extension.

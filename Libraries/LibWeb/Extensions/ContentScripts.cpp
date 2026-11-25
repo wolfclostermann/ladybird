@@ -54,6 +54,17 @@ bool has_extensions()
     return !extensions().is_empty();
 }
 
+bool is_running_in_an_isolated_world(JS::VM& vm)
+{
+    if (!has_extensions() || !vm.has_running_execution_context())
+        return false;
+    auto* realm = vm.current_realm();
+    if (!realm)
+        return false;
+    auto* host_defined = as_if<Bindings::HostDefined>(realm->host_defined().ptr());
+    return host_defined && host_defined->wrapper_world->type() == Bindings::WrapperWorld::Type::Extension;
+}
+
 static Vector<String> strings_of(JsonObject const& object, StringView key)
 {
     Vector<String> strings;

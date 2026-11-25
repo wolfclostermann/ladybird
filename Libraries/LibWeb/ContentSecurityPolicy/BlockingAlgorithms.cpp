@@ -371,6 +371,10 @@ Directives::Directive::Result should_elements_inline_type_behavior_be_blocked_by
     if (is_in_shadow_tree_with_user_agent_content(*element))
         return Directives::Directive::Result::Allowed;
 
+    // AD-HOC: Neither are the styles that an extension's content script adds, as in Chromium.
+    if ((type == Directives::Directive::InlineType::Style || type == Directives::Directive::InlineType::StyleAttribute) && Extensions::is_running_in_an_isolated_world(element->vm()))
+        return Directives::Directive::Result::Allowed;
+
     // 2. Let result be "Allowed".
     auto result = Directives::Directive::Result::Allowed;
 
