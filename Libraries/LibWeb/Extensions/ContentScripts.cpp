@@ -10,6 +10,8 @@
 #include <AK/StringBuilder.h>
 #include <AK/Utf16StringBuilder.h>
 #include <LibGC/Heap.h>
+#include <LibJS/Console.h>
+#include <LibJS/Runtime/ConsoleObject.h>
 #include <LibJS/Runtime/Realm.h>
 #include <LibJS/Runtime/VM.h>
 #include <LibJS/ScriptCompilation.h>
@@ -211,6 +213,10 @@ static GC::Ref<JS::Realm> create_isolated_world(DOM::Document& document)
 
     // The members of Window are defined on its wrapper once the realm has its intrinsics, as for the realm of the page.
     MUST(Bindings::initialize_window_web_interfaces(window, realm));
+
+    // What the extension logs goes where the page's own logging goes.
+    if (auto console_client = document.console_client())
+        realm.intrinsics().console_object()->console().set_client(*console_client);
     return realm;
 }
 

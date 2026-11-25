@@ -17,7 +17,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] **`/` (find):** the find box loses focus after each letter, probably when the page's selection
       changes to highlight a match.
 - [x] **`o` (Vomnibar):** remove the blue outline drawn around the Vomnibar frame, which Chrome doesn't draw.
-- [ ] **Debugging:** `console.log` from content scripts doesn't reach the terminal; only thrown errors do.
+- [x] **Debugging:** `console.log` from content scripts doesn't reach the terminal; only thrown errors do.
 
 ## Missing APIs Vimium uses
 
