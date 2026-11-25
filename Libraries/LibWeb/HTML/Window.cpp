@@ -1367,7 +1367,14 @@ void Window::focus()
     // 4. Run the focusing steps with current.
     // FIXME: We should pass in the browsing context itself instead of the active document, however the focusing steps don't currently accept browsing contexts.
     //        Passing in a browsing context always makes it resolve to its active document for focus, so this is fine for now.
-    run_focusing_steps(current->active_document());
+    // INTEROP: Chromium and Gecko focus a child navigable and keep the area focused in its document, so that a frame's
+    //          text field keeps focus when another frame focuses the frame's window. Vimium's find bar relies on this.
+    auto document = current->active_document();
+    if (auto focused_area = document->focused_area(); !current->is_top_level_traversable() && focused_area && focused_area != document) {
+        run_focusing_steps(focused_area);
+        return;
+    }
+    run_focusing_steps(document);
 
     // FIXME: 5. If current is a top-level traversable, user agents are encouraged to trigger some sort of notification to
     //           indicate to the user that the page is attempting to gain focus.

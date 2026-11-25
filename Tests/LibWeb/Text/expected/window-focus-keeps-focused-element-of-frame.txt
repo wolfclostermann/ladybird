@@ -1,0 +1,3 @@
+after inner.focus(): frame's active element is inner
+after frame window focus(): frame's active element is inner
+top document's active element is IFRAME

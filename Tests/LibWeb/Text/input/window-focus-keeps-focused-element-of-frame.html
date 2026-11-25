@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<script src="include.js"></script>
+<iframe srcdoc="<input id=inner>"></iframe>
+<script>
+    asyncTest(done => {
+        const iframe = document.querySelector("iframe");
+        iframe.onload = () => {
+            const frameWindow = iframe.contentWindow;
+            const inner = frameWindow.document.getElementById("inner");
+            inner.focus();
+            println(`after inner.focus(): frame's active element is ${frameWindow.document.activeElement.id}`);
+
+            inner.onblur = () => println("inner received blur");
+            frameWindow.focus();
+            println(`after frame window focus(): frame's active element is ${frameWindow.document.activeElement.id}`);
+            println(`top document's active element is ${document.activeElement.tagName}`);
+            done();
+        };
+    });
+</script>
