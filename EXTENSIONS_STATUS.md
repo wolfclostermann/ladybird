@@ -35,6 +35,9 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `f9a3a3748a7`, `c795f44bd0a` | The browser process checks which extension a page may speak for, and limits content scripts to messaging and storage. |
 | `617357367ee` | Extensions are held to the permissions and host permissions their manifests ask for. |
 | `9764428c80b` | A page's CSP no longer applies Trusted Types or inline-style rules to content scripts' DOM changes (Vimium on strict sites such as ai.google). |
+| `ee07bc3403f` | An `about:extensions` page: loaded extensions with icon, version, details and an Options button, and the ones that failed to load. |
+| `30dd514e73f` | Pages of an extension load when the browser itself opens them (options page, `tabs.create`, popups); before, only pages already hosting the extension could read its files. |
+| `2fd7010643e` | Toolbar buttons for extensions (`chrome.action`): icon, title, badge per tab, `onClicked`, and popups sized to their page. |
 
 ### Where the code lives
 
@@ -102,7 +105,10 @@ All fixed. `TODO.md` is the live checklist.
 
 ### UI
 
-- `about:extensions` page, and the toolbar button (`chrome.action`; `action.set*` are currently no-ops).
+- `about:extensions` lists extensions but cannot enable, disable, reload or remove them.
+- Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
+  crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
+  shown in the sidebar layouts' collapsed rail.
 - A way to install packed extensions (`.crx` / `.zip`) and to enable, disable and remove them.
 - Only one window exists as far as extensions are concerned (window id 1).
 
@@ -251,5 +257,7 @@ items below are fixed.
   ExtensionHost.cpp` (every API call, in the browser process), `Libraries/LibWebView/Extensions.cpp` (loading and
   file access). New Hub↔UI messages: `tab_order_changed` (UI→Hub), `view_move_tab` and
   `app_reopen_recently_closed_tab` (Hub→UI).
-- Suggested next steps, in order: the remaining high-severity security item in section 4 (2); `about:extensions` and the
-  toolbar button (`chrome.action`); `runtime.connect`; `tabs.onMoved` and pinning; clang-format the new code.
+- Suggested next steps, in order: the remaining high-severity security item in section 4 (2); `runtime.connect`;
+  `tabs.onMoved` and pinning; clang-format the new code. New Hub↔UI messages for the toolbar buttons:
+  `app_extension_actions_changed`, `app_show_extension_popup`, `app_extension_popup_did_request_size` (Hub→UI) and
+  `extension_action_clicked` (UI→Hub).

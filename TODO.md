@@ -34,8 +34,10 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 
 ## Next phase: UI
 
-- [ ] An `about:extensions` page listing loaded extensions.
-- [ ] The toolbar button for extensions (`chrome.action`). The `action.set*` calls are no-ops for now.
+- [x] An `about:extensions` page listing loaded extensions (and the ones that failed to load).
+- [x] The toolbar button for extensions (`chrome.action`), with badges, per-tab state, `onClicked` and popups.
+- [ ] Enable, disable, reload and remove extensions from `about:extensions`.
+- [ ] An overflow menu or pinning for toolbar buttons; a context menu on them; `action.openPopup`.
 
 ## Housekeeping
 
