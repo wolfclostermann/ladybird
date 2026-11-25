@@ -33,6 +33,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `4205c821878` | `search.query`, with the search engine chosen in settings (searching from Vimium's `o`). |
 | `2363946e694`, `7f78b453e1c` | The `_favicon/` endpoint, scaled to the requested size (icons in Vimium's `T`). |
 | `f9a3a3748a7`, `c795f44bd0a` | The browser process checks which extension a page may speak for, and limits content scripts to messaging and storage. |
+| `617357367ee` | Extensions are held to the permissions and host permissions their manifests ask for. |
 | `9764428c80b` | A page's CSP no longer applies Trusted Types or inline-style rules to content scripts' DOM changes (Vimium on strict sites such as ai.google). |
 
 ### Where the code lives
@@ -174,11 +175,13 @@ items below are fixed.
    environment with the extension's storage key"). A renderer exploit in that process gets the same. Chromium puts
    extension frames into separate extension processes.
 
-3. **No permission enforcement.** The manifest's `permissions` and `host_permissions` are not checked:
-   `permissions.contains` always returns `true` (`ExtensionHost.cpp:374`), and `scripting.executeScript` / `insertCSS`
-   do not check that the extension has host access to the target tab. Any loaded extension effectively has
-   `<all_urls>` plus every API implemented. This is fine for Vimium, which asks for broad access anyway, but it means
-   the manifest gives the user no real information about what an extension can do.
+3. **Fixed: no permission enforcement.** API namespaces that need a permission (`storage`, `history`, `bookmarks`,
+   `sessions`, `search`, `scripting`, `webNavigation`, ...) exist only with it, and the browser process refuses calls
+   without it. `scripting.*` needs host permissions for every frame it touches (`allFrames` skips the rest). Tab URLs,
+   titles and favicons are only shown with `tabs` or host access, in results, `sender.tab` and `tabs` events;
+   `webNavigation` events need their permission; `permissions.contains`/`getAll` answer from the manifest. Not yet:
+   `activeTab` (no toolbar button or commands to grant it), optional permissions (`permissions.request`), and the
+   per-site "allow access to file URLs" switch Chromium has.
 
 ### Medium
 
@@ -226,8 +229,7 @@ items below are fixed.
    don't match (item 1).~~ Done. File reads already decide by what the page hosts.
 2. Run extension frames and background pages in their own WebContent processes (item 2). This also tightens items 5
    and 6.
-3. Enforce `permissions` and `host_permissions` for `scripting`, `tabs` (URL and title fields), `history` and
-   `bookmarks` (item 3).
+3. ~~Enforce `permissions` and `host_permissions` (item 3).~~ Done.
 4. Check `web_accessible_resources` `matches`, and limit the CSP bypass to web-accessible resources or loads started
    by the extension (items 4 and 5).
 5. Add tests for path traversal in `open_extension_file` (item 9).
@@ -249,5 +251,5 @@ items below are fixed.
   ExtensionHost.cpp` (every API call, in the browser process), `Libraries/LibWebView/Extensions.cpp` (loading and
   file access). New Hub↔UI messages: `tab_order_changed` (UI→Hub), `view_move_tab` and
   `app_reopen_recently_closed_tab` (Hub→UI).
-- Suggested next steps, in order: the remaining high-severity security items in section 4 (2 and 3); `about:extensions` and the
+- Suggested next steps, in order: the remaining high-severity security item in section 4 (2); `about:extensions` and the
   toolbar button (`chrome.action`); `runtime.connect`; `tabs.onMoved` and pinning; clang-format the new code.
