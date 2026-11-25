@@ -240,6 +240,7 @@ public:
     ReferrerPolicy::ReferrerPolicy hyperlink_referrer_policy() const;
     void download_the_hyperlink(Optional<Utf16String> hyperlink_suffix, HTML::UserNavigationInvolvement = HTML::UserNavigationInvolvement::None);
     void activate_the_hyperlink(Event const&);
+    void open_the_hyperlink_in_a_new_tab(UIEvents::MouseEvent const&);
 
     Utf16String advisory_information() const;
 

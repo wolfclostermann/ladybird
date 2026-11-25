@@ -8,7 +8,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] **Tab order:** report tab positions in the tab strip's order. `tab_views()` in
       `Libraries/LibWebView/ExtensionHost.cpp` walks an unordered `HashMap` of views, so `tab.index` is
       arbitrary and Vimium's `J`/`K` (previous/next tab) appear reversed.
-- [ ] **`F` (open link in new tab):** Vimium simulates a click with `metaKey` (macOS) or `ctrlKey` held.
+- [x] **`F` (open link in new tab):** Vimium simulates a click with `metaKey` (macOS) or `ctrlKey` held.
       Make that synthetic click from the extension's isolated world open the link in a new tab.
 - [ ] **`b` (bookmarks):** no bookmarks show. Check the path of `Bookmarks.json` that the UI uses, and the
       shape Vimium's bookmark completer expects from `chrome.bookmarks.getTree()`.

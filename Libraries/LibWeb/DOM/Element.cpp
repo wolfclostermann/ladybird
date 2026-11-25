@@ -162,6 +162,7 @@
 #include <LibWeb/StyleValueRustFFI.h>
 #include <LibWeb/TrustedTypes/RequireTrustedTypesForDirective.h>
 #include <LibWeb/TrustedTypes/TrustedTypePolicy.h>
+#include <LibWeb/HTML/PreparedNavigationDescriptor.h>
 #include <LibWeb/UIEvents/MouseEvent.h>
 #include <LibWeb/UIEvents/PointerEvent.h>
 #include <LibWeb/WebIDL/AbstractOperations.h>
@@ -824,6 +825,38 @@ void Element::download_the_hyperlink(Optional<Utf16String> hyperlink_suffix, HTM
     controller_holder->set_controller(Fetch::Fetching::fetch(relevant_realm, request, Fetch::Infrastructure::FetchAlgorithms::create(move(fetch_algorithms_input))));
 }
 
+void Element::open_the_hyperlink_in_a_new_tab(UIEvents::MouseEvent const& mouse_event)
+{
+    if (cannot_navigate())
+        return;
+    auto* window = HTML::window_from_global_object(HTML::relevant_global_object(*this));
+    if (!window || !window->has_transient_activation())
+        return;
+
+    auto href = get_attribute_ns({}, HTML::AttributeNames::href);
+    if (!href.has_value() && is_svg_a_element())
+        href = get_attribute_ns(Namespace::XLink, HTML::AttributeNames::href);
+    auto url = document().encoding_parse_url(href.value_or({}));
+    if (!url.has_value())
+        return;
+
+    unsigned modifiers = 0;
+    if (mouse_event.ctrl_key())
+        modifiers |= UIEvents::Mod_Ctrl;
+    if (mouse_event.shift_key())
+        modifiers |= UIEvents::Mod_Shift;
+    if (mouse_event.alt_key())
+        modifiers |= UIEvents::Mod_Alt;
+    if (mouse_event.meta_key())
+        modifiers |= UIEvents::Mod_Super;
+
+    Utf16String target;
+    if (is_html_anchor_element() || is_html_area_element() || is_svg_a_element() || is_mathml_anchor_element())
+        target = get_an_elements_target();
+    auto navigation = HTML::prepare_navigation_from_document(document(), url.release_value(), hyperlink_referrer_policy());
+    document().page().client().page_did_click_link(move(navigation), target.utf16_view().to_utf8_but_should_be_ported_to_utf16().to_byte_string(), modifiers);
+}
+
 // https://html.spec.whatwg.org/multipage/links.html#links-created-by-a-and-area-elements
 void Element::activate_the_hyperlink(Event const& event)
 {
@@ -838,8 +871,14 @@ void Element::activate_the_hyperlink(Event const& event)
 
     // AD-HOC: Do not activate the element for clicks with the ctrl/cmd modifier present. This lets
     //         the browser process open the link in a new tab.
-    if (mouse_event && mouse_event->platform_ctrl_key())
+    if (mouse_event && mouse_event->platform_ctrl_key()) {
+        // INTEROP: A script's ctrl/cmd click opens the link in a new tab, as the user's own would, while the page has
+        //          transient activation. Chromium does this, and extensions such as Vimium open links in new tabs
+        //          with such clicks. The browser process does it for the user's own clicks.
+        if (!event.is_trusted())
+            open_the_hyperlink_in_a_new_tab(*mouse_event);
         return;
+    }
 
     // 2. Let hyperlinkSuffix be null.
     Optional<Utf16String> hyperlink_suffix {};
