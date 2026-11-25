@@ -2631,20 +2631,30 @@ void WebContentPage::did_request_clipboard_entries_for_paste(u64 request_id)
     });
 }
 
+static bool is_origin_of_loaded_extension(URL::Origin const& origin)
+{
+    if (origin.is_opaque() || origin.scheme() != "chrome-extension"sv)
+        return false;
+    return Application::the().extension_with_id(origin.host().serialize()) != nullptr;
+}
+
 // NB: Outside a paste, a page reads only data that its own origin wrote to the clipboard, which tells it nothing new.
+//     The pages of the extensions that the user loaded read all of it, as extensions can in Chromium. Vimium's paste
+//     commands read the clipboard from its HUD frame, which the user's key press in the page around it doesn't activate.
 void WebContentPage::did_request_clipboard_entries(u64 request_id, Web::HTML::CrossProcessId reading_document_id)
 {
     Vector<Web::Clipboard::SystemClipboardItem> items;
     auto document = hosted_document_with_id(reading_document_id);
-    if (!document || !has_transient_user_activation()) {
+    auto reads_all_data = document && is_origin_of_loaded_extension(document->origin());
+    if (!document || (!reads_all_data && !has_transient_user_activation())) {
         async_retrieved_clipboard_entries(request_id, items);
         return;
     }
-    view().read_clipboard_item([page = NonnullRefPtr { *this }, request_id, origin = document->origin()](Web::Clipboard::SystemClipboardItem item) {
+    view().read_clipboard_item([page = NonnullRefPtr { *this }, request_id, origin = document->origin(), reads_all_data](Web::Clipboard::SystemClipboardItem item) {
         if (!page->is_open())
             return;
         Vector<Web::Clipboard::SystemClipboardItem> items;
-        if (auto view = page->traversable().view(); view.has_value() && view->is_clipboard_data_written_by(item, origin))
+        if (auto view = page->traversable().view(); view.has_value() && (reads_all_data || view->is_clipboard_data_written_by(item, origin)))
             items.append(move(item));
         page->async_retrieved_clipboard_entries(request_id, items);
     });

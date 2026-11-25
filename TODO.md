@@ -13,7 +13,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] **`b` (bookmarks):** not a bug. Vimium's bookmark completer lists nothing until you type a query (as in
       Chrome); typing matches bookmarks, including those in folders.
 - [x] **`yy` (copy URL):** an extension's focused page may now write to the clipboard without a gesture, as in
-      Chromium. Vimium's `p`/`P` (paste) still need reading, which requires a gesture in the HUD frame; untested.
+      Chromium. The pages of loaded extensions may read the clipboard too, for Vimium's `p`/`P`.
 - [x] **`/` (find):** the find box loses focus after each letter, probably when the page's selection
       changes to highlight a match.
 - [x] **`o` (Vomnibar):** remove the blue outline drawn around the Vomnibar frame, which Chrome doesn't draw.

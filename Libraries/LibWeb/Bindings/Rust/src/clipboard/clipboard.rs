@@ -279,6 +279,12 @@ fn check_clipboard_read_permission(realm: Gc<Realm>, is_running_from_paste: bool
         return ClipboardReadPermission::Denied;
     }
 
+    // INTEROP: Chromium lets an extension's page read the clipboard while it has focus, without a gesture. The UI
+    //          process hands over all of the clipboard's data only to the pages of the extensions that the user loaded.
+    if window.associated_document().url().scheme() == "chrome-extension" {
+        return ClipboardReadPermission::GrantedForOwnOriginData;
+    }
+
     // 1. Let hasGesture be true if the relevant global object of this has transient activation, false otherwise.
     let has_gesture = window.has_transient_activation();
 
