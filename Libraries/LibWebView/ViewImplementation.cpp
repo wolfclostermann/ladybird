@@ -382,6 +382,13 @@ Optional<URL::URL const&> ViewImplementation::browser_ui_load_url() const
     return m_browser_ui_load->url;
 }
 
+Optional<URL::URL const&> ViewImplementation::load_started_by_browser_url() const
+{
+    if (!m_browser_ui_load.has_value() || m_browser_ui_load->is_initiated_by_page)
+        return {};
+    return browser_ui_load_url();
+}
+
 void ViewImplementation::did_change_ongoing_navigation(Badge<CanonicalNavigable>)
 {
     update_displayed_url();
@@ -907,7 +914,7 @@ void ViewImplementation::load(Web::HTML::PreparedNavigationDescriptor navigation
     if (navigation.url.scheme() != "javascript"sv) {
         if (navigation.url.fragment().has_value() && navigation.url.fragment()->contains(":~:"sv))
             m_text_fragment_indication_is_visible = true;
-        m_browser_ui_load = BrowserUILoad { navigation.navigation_id, navigation.url };
+        m_browser_ui_load = BrowserUILoad { navigation.navigation_id, navigation.url, navigation.source_snapshot_params.fetch_client.has_value() };
     }
     traversable().begin_navigation(move(navigation), {}, move(local_file_access));
     if (traversable().has_uncommitted_navigation())

@@ -837,6 +837,9 @@ public:
     virtual Gfx::IntPoint to_content_position(Gfx::IntPoint widget_position) const = 0;
     virtual Gfx::IntPoint to_widget_position(Gfx::IntPoint content_position) const = 0;
 
+    // The URL of a load the browser started of its own accord, not for a page, while it is the ongoing navigation.
+    Optional<URL::URL const&> load_started_by_browser_url() const;
+
 protected:
     virtual void did_request_context_menu(ContextMenuRequest) { }
     virtual void did_make_link_to_highlight(Optional<URL::URL>) { }
@@ -1010,6 +1013,8 @@ protected:
     struct BrowserUILoad {
         Utf16String navigation_id;
         URL::URL url;
+        // Whether a page asked for the load, as with a link opened in a new tab, rather than the browser itself.
+        bool is_initiated_by_page { false };
     };
     Optional<BrowserUILoad> m_browser_ui_load;
     URL::URL m_displayed_url { URL::about_blank() };

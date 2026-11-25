@@ -969,6 +969,14 @@ ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage cons
     if (is_extension_background_view(page.view()) || page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_origin)))
         requester = ExtensionFileRequester::ExtensionPage;
 
+    // The browser itself may load a page of the extension into a view, as it does for its options page, its popup,
+    // or a tab the extension opens. Until that document is there to vouch for the page, only the document itself may
+    // be read.
+    if (auto load_url = page.view().load_started_by_browser_url(); load_url.has_value()) {
+        if (load_url->equals(url, URL::ExcludeFragment::Yes))
+            requester = ExtensionFileRequester::ExtensionPage;
+    }
+
     auto path = URL::percent_decode(url.serialize_path());
     auto relative_path = path.view().trim("/"sv, TrimMode::Left);
     if (relative_path.trim("/"sv, TrimMode::Right) == favicon_path)
