@@ -1306,22 +1306,97 @@ HistoryStore* ExtensionHost::history_store()
     return m_history_store.ptr();
 }
 
-Optional<ByteBuffer> ExtensionHost::favicon_png_for_page(URL::URL const& page_url)
+// Scales a bitmap down to fit in a square of the given size, keeping its aspect ratio, by averaging the pixels that
+// each pixel of the result covers. A bitmap that fits already is left alone.
+static ErrorOr<NonnullRefPtr<Gfx::Bitmap const>> fit_bitmap_in_square(Gfx::Bitmap const& bitmap, int size)
 {
+    auto width = bitmap.width();
+    auto height = bitmap.height();
+    if (width <= size && height <= size)
+        return NonnullRefPtr<Gfx::Bitmap const> { bitmap };
+
+    auto scale = static_cast<double>(size) / max(width, height);
+    auto new_width = max(1, static_cast<int>(round(width * scale)));
+    auto new_height = max(1, static_cast<int>(round(height * scale)));
+    auto result = TRY(Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, Gfx::AlphaType::Unpremultiplied, { new_width, new_height }));
+
+    for (int y = 0; y < new_height; ++y) {
+        auto y0 = y * height / new_height;
+        auto y1 = max(y0 + 1, (y + 1) * height / new_height);
+        for (int x = 0; x < new_width; ++x) {
+            auto x0 = x * width / new_width;
+            auto x1 = max(x0 + 1, (x + 1) * width / new_width);
+
+            // The colours are weighted by their alpha, so that transparent pixels don't darken the edges.
+            u64 red = 0, green = 0, blue = 0, alpha = 0, count = 0;
+            for (int source_y = y0; source_y < y1; ++source_y) {
+                for (int source_x = x0; source_x < x1; ++source_x) {
+                    auto color = bitmap.get_pixel(source_x, source_y);
+                    red += color.red() * color.alpha();
+                    green += color.green() * color.alpha();
+                    blue += color.blue() * color.alpha();
+                    alpha += color.alpha();
+                    ++count;
+                }
+            }
+            if (alpha == 0) {
+                result->set_pixel(x, y, Gfx::Color::Transparent);
+                continue;
+            }
+            result->set_pixel(x, y, Gfx::Color(red / alpha, green / alpha, blue / alpha, alpha / count));
+        }
+    }
+    return NonnullRefPtr<Gfx::Bitmap const> { move(result) };
+}
+
+// The size a PNG gives in its header.
+// https://www.w3.org/TR/png-3/#11IHDR
+static Optional<Gfx::IntSize> png_dimensions(ReadonlyBytes png)
+{
+    static constexpr u8 signature[] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
+    if (png.size() < 24 || png.slice(0, 8) != ReadonlyBytes { signature, 8 } || png.slice(12, 4) != "IHDR"sv.bytes())
+        return {};
+    auto read_u32 = [&](size_t offset) {
+        return static_cast<u32>(png[offset]) << 24 | static_cast<u32>(png[offset + 1]) << 16 | static_cast<u32>(png[offset + 2]) << 8 | png[offset + 3];
+    };
+    auto width = read_u32(16);
+    auto height = read_u32(20);
+    if (width > NumericLimits<i32>::max() || height > NumericLimits<i32>::max())
+        return {};
+    return Gfx::IntSize { static_cast<int>(width), static_cast<int>(height) };
+}
+
+Optional<ByteBuffer> ExtensionHost::favicon_png_for_page(URL::URL const& page_url, int size)
+{
+    RefPtr<Gfx::Bitmap const> favicon;
     for (auto& view : tab_views()) {
-        if (view.url() != page_url)
-            continue;
-        if (auto favicon = view.favicon(); favicon) {
-            if (auto png = Gfx::PNGWriter::encode(*favicon); !png.is_error())
-                return png.release_value();
+        if (view.url() == page_url && view.favicon()) {
+            favicon = view.favicon();
+            break;
         }
     }
 
-    if (auto* store = history_store()) {
-        if (auto entry = store->entry_for_url(page_url); entry.has_value())
-            return move(entry->favicon_png);
+    if (!favicon) {
+        auto* store = history_store();
+        auto entry = store ? store->entry_for_url(page_url) : Optional<HistoryEntry> {};
+        if (!entry.has_value() || !entry->favicon_png.has_value())
+            return {};
+
+        // FIXME: Scale down a larger favicon from the history too. Images are decoded in another process, so this
+        //        would have to wait for it. Until then, only one that fits is given out.
+        auto png_size = png_dimensions(entry->favicon_png->bytes());
+        if (!png_size.has_value() || png_size->width() > size || png_size->height() > size)
+            return {};
+        return move(entry->favicon_png);
     }
-    return {};
+
+    auto fitted = fit_bitmap_in_square(*favicon, size);
+    if (fitted.is_error())
+        return {};
+    auto png = Gfx::PNGWriter::encode(*fitted.value());
+    if (png.is_error())
+        return {};
+    return png.release_value();
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/history

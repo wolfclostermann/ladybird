@@ -983,21 +983,25 @@ ErrorOr<IPC::File> Application::open_favicon_for_extension(LoadedExtension const
     if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path))
         return Error::from_errno(EACCES);
 
-    // The query is form-encoded, as URLSearchParams writes it. The size is ignored: the favicon comes at the size it
-    // was found at.
+    // The query is form-encoded, as URLSearchParams writes it. The favicon is scaled down to the size, in pixels, which
+    // Chromium takes as 16 without one.
+    // FIXME: Chromium also serves larger favicons for displays with more than one device pixel per CSS pixel.
     Optional<URL::URL> page_url;
+    int size = 16;
     for (auto parameter : url.query().value_or({}).split_view('&')) {
         auto equals = parameter.find('=');
         auto name = equals.has_value() ? parameter.substring_view(0, *equals) : parameter;
         auto value = equals.has_value() ? parameter.substring_view(*equals + 1) : StringView {};
         if (name == "pageUrl"sv)
             page_url = URL::Parser::basic_parse(URL::percent_decode(value.replace("+"sv, " "sv, ReplaceMode::All)));
+        else if (name == "size"sv)
+            size = clamp(value.to_number<int>().value_or(16), 1, 256);
     }
     if (!page_url.has_value())
         return Error::from_errno(EINVAL);
 
     // FIXME: Chromium serves a default icon for a page without a favicon.
-    auto png = m_extension_host.favicon_png_for_page(*page_url);
+    auto png = m_extension_host.favicon_png_for_page(*page_url, size);
     if (!png.has_value())
         return Error::from_errno(ENOENT);
     return file_with_contents(png->bytes());
