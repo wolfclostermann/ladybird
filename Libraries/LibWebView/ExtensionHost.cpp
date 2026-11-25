@@ -17,6 +17,8 @@
 #include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/HistoryStore.h>
+#include <LibWebView/SearchEngine.h>
+#include <LibWebView/Settings.h>
 #include <LibDatabase/Database.h>
 #include <LibCore/File.h>
 #include <LibWebView/Utilities.h>
@@ -367,6 +369,9 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         return history_call(api.substring_view(8), arguments, move(complete));
     if (api.starts_with("bookmarks."sv))
         return bookmarks_call(api.substring_view(10), arguments, move(complete));
+
+    if (api == "search.query"sv)
+        return search_query(page, arguments, move(complete));
 
     // https://developer.chrome.com/docs/extensions/reference/api/sessions#method-restore
     if (api == "sessions.restore"sv) {
@@ -921,6 +926,46 @@ void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& exten
     }
 
     complete(error(MUST(String::formatted("chrome.tabs.{} is not implemented yet", function))));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/search#method-query
+void ExtensionHost::search_query(WebContentPage& page, JsonArray const& arguments, Completion complete)
+{
+    auto query_info = !arguments.is_empty() && arguments.at(0).is_object() ? arguments.at(0).as_object() : JsonObject {};
+    auto text = query_info.get_string("text"sv);
+    if (!text.has_value())
+        return complete(error("No text given to search for"sv));
+
+    auto const& engine = Application::settings().search_engine_settings().engine;
+    if (!engine.has_value())
+        return complete(error("No search engine is set"sv));
+    auto url = URL::Parser::basic_parse(engine->format_search_query_for_navigation(*text));
+    if (!url.has_value())
+        return complete(error("The search engine gave an invalid URL"sv));
+
+    auto disposition = query_info.get_string("disposition"sv);
+    auto tab_id = query_info.get_integer<i64>("tabId"sv);
+    if (disposition.has_value() && tab_id.has_value())
+        return complete(error("Cannot set both 'disposition' and 'tabId'"sv));
+
+    if (disposition == "NEW_TAB"sv) {
+        Optional<ViewImplementation&> source_view = tab_view_of_page(page);
+        if (!source_view.has_value())
+            source_view = active_tab_view();
+        Application::the().open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes, source_view.has_value() ? &*source_view : nullptr);
+        return complete(undefined_result());
+    }
+    if (disposition == "NEW_WINDOW"sv) {
+        Application::the().open_url_in_new_window(*url, IsPrivate::No);
+        return complete(undefined_result());
+    }
+
+    // Otherwise the search is shown in the given tab, or the active one.
+    auto view = tab_id.has_value() ? tab_view_with_id(*tab_id) : active_tab_view();
+    if (!view.has_value())
+        return complete(error(MUST(String::formatted("No tab with id: {}", tab_id.value_or(-1)))));
+    view->load_from_browser_ui(*url);
+    complete(undefined_result());
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/scripting

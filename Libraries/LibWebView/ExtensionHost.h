@@ -80,6 +80,7 @@ private:
     void tabs_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     void scripting_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     void history_call(StringView function, JsonArray const& arguments, Completion);
+    void search_query(WebContentPage&, JsonArray const& arguments, Completion);
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
     HistoryStore* history_store();
 
