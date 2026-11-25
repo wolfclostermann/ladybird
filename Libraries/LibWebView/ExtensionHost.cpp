@@ -304,15 +304,16 @@ bool ExtensionHost::page_matches_content_scripts_of(WebContentPage const& page, 
 
 // Like Chromium, the UI process decides what a page may do with an extension by what the page hosts, so that a
 // WebContent process which has been taken over cannot speak for an extension it doesn't host.
-// FIXME: An extension's frame shares a process with the web page around it, which can therefore act as the extension.
-//        Give extensions processes of their own.
+// NB: Without site isolation, an extension's frame shares a process with the web page around it, which can therefore
+//     act as the extension.
 Optional<ExtensionHost::Caller> ExtensionHost::caller_for(WebContentPage const& page, LoadedExtension const& extension)
 {
     if (!page.is_open() || !page.has_traversable())
         return {};
 
-    auto extension_url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/", extension.id)));
-    if (extension_url.has_value() && page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_url->origin())))
+    // NB: What a process says it hosts can't be trusted; which documents the UI process gave it can. Site isolation
+    //     gives the extension's documents a process of their own.
+    if (page.client().may_speak_for_extension(extension.id))
         return Caller::ExtensionPage;
 
     if (page_matches_content_scripts_of(page, extension))

@@ -68,6 +68,13 @@ Optional<URL::Origin> CanonicalDocument::top_level_origin() const
     return top_level_browsing_context.active_document()->origin();
 }
 
+Optional<String> CanonicalDocument::extension_id() const
+{
+    if (m_origin.is_opaque() || m_origin.scheme() != "chrome-extension"sv)
+        return {};
+    return m_origin.host().serialize();
+}
+
 bool CanonicalDocument::is_top_level() const
 {
     return &m_browsing_context->top_level_browsing_context() == m_browsing_context.ptr();

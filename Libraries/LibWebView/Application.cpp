@@ -960,13 +960,11 @@ ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage cons
     if (!extension)
         return Error::from_errno(ENOENT);
 
-    // A page that hosts one of the extension's own documents, such as its background page or a frame of it in a tab,
-    // may read any of its files. Others may read only those it makes accessible to the web.
-    // FIXME: A process may host web content in the same page as an extension's frame. Give extensions processes of
-    //        their own.
+    // A process that hosted the extension's own documents, such as its background page or a frame of it in a tab, may
+    // read any of its files. Site isolation gives those documents processes of their own. Others may read only the
+    // files the extension makes accessible to the web.
     auto requester = ExtensionFileRequester::WebPage;
-    auto extension_origin = url.origin();
-    if (is_extension_background_view(page.view()) || page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_origin)))
+    if (page.client().may_speak_for_extension(extension->id))
         requester = ExtensionFileRequester::ExtensionPage;
 
     // The browser itself may load a page of the extension into a view, as it does for its options page, its popup,

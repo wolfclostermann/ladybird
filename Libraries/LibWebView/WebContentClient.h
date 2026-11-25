@@ -153,6 +153,14 @@ public:
     // documents processes of their own, which host nothing else.
     Optional<String> const& hosted_web_ui() const { return m_hosted_web_ui; }
     void set_hosted_web_ui(String host) { m_hosted_web_ui = move(host); }
+    // The extensions whose documents the process has hosted, which may then read the extension's files and call its
+    // APIs. Site isolation gives such documents processes of their own, one per extension, which host nothing else.
+    // Without site isolation, an extension's frame stays in the process of the page around it.
+    void note_hosted_extension(String const& extension_id);
+    bool has_hosted_an_extension() const { return !m_hosted_extensions.is_empty(); }
+    // Whether the process may speak for the extension: it has hosted the extension's documents and, with site
+    // isolation, nothing but them.
+    bool may_speak_for_extension(StringView extension_id) const;
     // A process can take in a tab of an origin only if all it has ever hosted, and so may still hold, is tabs of that
     // origin with their same-site and data: URL iframes. An origin-keyed tab keeps apart from the other origins of
     // its site, so it only joins origin-keyed tabs of its origin, in a process that has not hosted iframes of those
@@ -287,6 +295,7 @@ private:
     bool m_has_hosted_documents_of_several_sites { false };
     Vector<LocalFileRoot> m_local_file_roots;
     Optional<String> m_hosted_web_ui;
+    Vector<String> m_hosted_extensions;
     Optional<URL::Origin> m_origin_of_hosted_tabs;
     bool m_hosted_tabs_are_origin_keyed { false };
     bool m_has_hosted_more_than_tabs_of_one_origin { false };

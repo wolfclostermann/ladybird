@@ -144,6 +144,19 @@ bool WebContentClient::has_hosted_only_tabs_of_the_site_of(CanonicalDocument con
     return m_origin_of_hosted_tabs->is_same_site(document.origin());
 }
 
+void WebContentClient::note_hosted_extension(String const& extension_id)
+{
+    if (!m_hosted_extensions.contains_slow(extension_id))
+        m_hosted_extensions.append(extension_id);
+}
+
+bool WebContentClient::may_speak_for_extension(StringView extension_id) const
+{
+    if (Application::the().tab_processes() == TabProcesses::PerTabWithoutSiteIsolation)
+        return m_hosted_extensions.contains_slow(extension_id);
+    return m_hosted_extensions.size() == 1 && m_hosted_extensions.first() == extension_id;
+}
+
 bool WebContentClient::hosts_an_environment_with_storage_key(Web::StorageAPI::StorageKey const& storage_key)
 {
     bool hosts_one = false;

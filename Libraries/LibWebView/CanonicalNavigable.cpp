@@ -992,7 +992,9 @@ RefPtr<WebContentClient> CanonicalNavigable::process_to_host_for_site_isolation(
 // could have made: only local file content, documents of its origin, documents local file content made from what it
 // holds, and about:blank documents no other process can reach. Local file content goes to no other process.
 // Likewise, a process that has hosted a WebUI's documents may speak for that WebUI, so it hosts only that WebUI's
-// documents and about:blank documents no other process can reach, and a WebUI's documents go to no other process.
+// documents and about:blank documents no other process can reach, and a WebUI's documents go to no other process. The
+// same goes for an extension's documents, such as its background page or a frame of it in a web page: their process may
+// read the extension's files and call its APIs.
 RefPtr<WebContentClient> CanonicalNavigable::process_to_host(CanonicalDocument const& document, Optional<URL::Origin> const& initiator_origin) const
 {
     auto process = process_to_host_for_site_isolation(document, initiator_origin);
@@ -1003,13 +1005,16 @@ RefPtr<WebContentClient> CanonicalNavigable::process_to_host(CanonicalDocument c
         return process;
     auto process_has_hosted_local_file_content = process && process->may_read_local_files();
     auto process_has_hosted_web_ui = process && process->hosted_web_ui().has_value();
+    auto process_has_hosted_an_extension = process && process->has_hosted_an_extension();
 
     if (document.web_ui_host().has_value())
         return process && process->hosted_web_ui() == document.web_ui_host() ? process : nullptr;
+    if (auto extension_id = document.extension_id(); extension_id.has_value())
+        return process && process->may_speak_for_extension(*extension_id) ? process : nullptr;
     auto root = local_file_root_to_host(*this, document);
     if (document.is_local_file_content())
         return process && may_read_local_files_under(*process, root) ? process : nullptr;
-    if (!process_has_hosted_local_file_content && !process_has_hosted_web_ui)
+    if (!process_has_hosted_local_file_content && !process_has_hosted_web_ui && !process_has_hosted_an_extension)
         return process;
     if (process_has_hosted_local_file_content && document.origin().is_file_origin() && may_read_local_files_under(*process, root))
         return process;
@@ -1047,6 +1052,8 @@ ErrorOr<NonnullRefPtr<WebContentPage>> CanonicalNavigable::obtain_page_to_host(C
     }
     if (document.is_local_file_content())
         TRY(page->client().add_local_file_root(*document.local_file_root()));
+    if (auto extension_id = document.extension_id(); extension_id.has_value())
+        page->client().note_hosted_extension(*extension_id);
     if (auto const& web_ui_host = document.web_ui_host(); web_ui_host.has_value()) {
         page->client().set_hosted_web_ui(*web_ui_host);
         // NB: The page took the view's preferences before it hosted the WebUI, so it now takes the interface theme.

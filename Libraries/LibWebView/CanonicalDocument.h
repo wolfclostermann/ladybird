@@ -110,6 +110,9 @@ public:
     // the UI process.
     Optional<String> const& web_ui_host() const { return m_web_ui_host; }
 
+    // The ID of the extension whose document this is, if its origin is the extension's.
+    Optional<String> extension_id() const;
+
     void make_active();
 
 private:
