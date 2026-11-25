@@ -345,11 +345,14 @@ void ExtensionHost::handle_api_call(WebContentPage& page, String const& extensio
             frame = navigable;
             return IterationDecision::Break;
         });
-        if (!frame.has_value()) {
+        if (frame.has_value()) {
+            context.url = frame->active_document_url().serialize();
+        } else if (!context.url.is_one_of("about:blank"sv, "about:srcdoc"sv)) {
+            // NB: The UI process doesn't know of a frame until its first navigation, so a frame that still shows its
+            //     initial about:blank document, such as one a content script just created, is taken at its word.
             complete(error("The frame of the content script is gone"sv));
             return;
         }
-        context.url = frame->active_document_url().serialize();
     }
 
     call(page, *extension, context, api, arguments, move(complete));
