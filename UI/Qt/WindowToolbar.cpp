@@ -7,7 +7,9 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Base64.h>
 #include <AK/GenericShorthands.h>
+#include <AK/JsonObject.h>
 #include <AK/kmalloc.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/CrashReportOutbox.h>
@@ -19,6 +21,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/DownloadPresentation.h>
 #include <UI/Qt/ElidedLabel.h>
+#include <UI/Qt/ExtensionPopup.h>
 #include <UI/Qt/FeedbackPopover.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/LadybirdButton.h>
@@ -32,6 +35,7 @@
 #include <UI/Qt/Popover.h>
 #include <UI/Qt/RemoteDownloads.h>
 #include <UI/Qt/StringUtils.h>
+#include <UI/Qt/Tab.h>
 #include <UI/Qt/SystemAppearance.h>
 #include <UI/Qt/Theme.h>
 #include <UI/Qt/WebContentView.h>
@@ -705,6 +709,79 @@ static ButtonType* create_toolbar_button(QWidget& parent, QAction& action)
 }
 
 // The buttons in the toolbar sit close together, while the address field keeps a wider gap on either side.
+// The toolbar button of an extension, which shows the icon, title and badge the extension gives it for the tab that is
+// shown. https://developer.chrome.com/docs/extensions/reference/api/action
+class ExtensionActionButton final : public ToolbarButton {
+public:
+    AK_ALLOC_WITH_KMALLOC;
+
+    // Extensions draw their icons at 16 CSS pixels.
+    static constexpr int ICON_SIZE = 16;
+
+    ExtensionActionButton(QWidget* parent, String extension_id)
+        : ToolbarButton(parent)
+        , m_extension_id(AK::move(extension_id))
+    {
+        setObjectName("LadybirdExtensionActionButton");
+        // NB: The button stays checked while its popup is open.
+        setCheckable(true);
+        setAutoRaise(true);
+        setFocusPolicy(Qt::NoFocus);
+        setIconSize({ ICON_SIZE, ICON_SIZE });
+        setFixedSize(TOOLBAR_BUTTON_SIZE);
+        setAttribute(Qt::WA_LayoutUsesWidgetRect);
+    }
+
+    String const& extension_id() const { return m_extension_id; }
+
+    void set_badge(QString text, QColor background, QColor foreground)
+    {
+        if (m_badge_text == text && m_badge_background == background && m_badge_foreground == foreground)
+            return;
+        m_badge_text = AK::move(text);
+        m_badge_background = background;
+        m_badge_foreground = foreground;
+        update();
+    }
+
+private:
+    virtual void paintEvent(QPaintEvent* event) override
+    {
+        ToolbarButton::paintEvent(event);
+        if (m_badge_text.isEmpty())
+            return;
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        QFont font = this->font();
+        font.setPixelSize(9);
+        font.setWeight(QFont::DemiBold);
+        painter.setFont(font);
+        QFontMetrics metrics(font);
+
+        // Like Chromium's, the badge sits over the icon's bottom right corner and holds about four characters.
+        auto text = metrics.elidedText(m_badge_text, Qt::ElideNone, 4 * metrics.averageCharWidth()).left(4);
+        auto height = 12;
+        auto width = qMax(height, metrics.horizontalAdvance(text) + 6);
+        auto icon = icon_rect();
+        auto right = qMin(icon.right() + 6, rect().width() - 1);
+        QRectF badge(qMax(0, right - width), icon.bottom() + 5 - height, width, height);
+
+        // A ring in the toolbar's color keeps the badge apart from the icon under it.
+        painter.setPen(QPen(Theme::chrome(Theme::chrome_palette(*this)).toolbar, 1.5));
+        painter.setBrush(m_badge_background);
+        painter.drawRoundedRect(badge, height / 2.0, height / 2.0);
+        painter.setPen(m_badge_foreground);
+        painter.drawText(badge, Qt::AlignCenter, text);
+    }
+
+    String m_extension_id;
+    QString m_badge_text;
+    QColor m_badge_background;
+    QColor m_badge_foreground;
+};
+
 static constexpr int TOOLBAR_SPACING = 2;
 // The separator after the collapsed sidebar's buttons keeps a little more room on either side.
 static constexpr int SIDEBAR_SLOT_SEPARATOR_MARGIN = 6;
@@ -1230,6 +1307,15 @@ WindowToolbar::WindowToolbar(WebView::IsPrivate is_private, QWidget* parent)
         show_downloads_popover();
     });
 
+    m_extension_buttons_container = new QWidget(m_toolbar);
+    m_extension_buttons_container->setObjectName("LadybirdExtensionButtons");
+    {
+        auto* layout = new QHBoxLayout(m_extension_buttons_container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(TOOLBAR_SPACING);
+    }
+    m_extension_buttons_container->hide();
+
     if constexpr (has_feedback_button) {
         m_feedback_button = new FeedbackButton(m_toolbar);
         QObject::connect(m_feedback_button, &QToolButton::clicked, this, [this] {
@@ -1436,6 +1522,7 @@ void WindowToolbar::lay_out_as_row()
     toolbar_layout->addWidget(m_navigation_buttons, 0, Qt::AlignVCenter);
     m_navigation_buttons->show();
     toolbar_layout->addWidget(&field_slot(), 1);
+    toolbar_layout->addWidget(m_extension_buttons_container, 0, Qt::AlignVCenter);
     toolbar_layout->addWidget(m_downloads_button, 0, Qt::AlignVCenter);
     if (m_feedback_button)
         toolbar_layout->addWidget(m_feedback_button, 0, Qt::AlignVCenter);
@@ -1474,6 +1561,7 @@ void WindowToolbar::lay_out_in_sidebar()
     m_window_controls_separator->hide();
 
     auto* footer_layout = static_cast<QBoxLayout*>(m_sidebar_footer->layout());
+    footer_layout->addWidget(m_extension_buttons_container, 0, Qt::AlignVCenter);
     footer_layout->addWidget(m_downloads_button, 0, Qt::AlignVCenter);
     if (m_feedback_button)
         footer_layout->addWidget(m_feedback_button, 0, Qt::AlignVCenter);
@@ -1784,6 +1872,9 @@ void WindowToolbar::show_tab(Tab& tab)
     QObject::connect(&tab, &Tab::loading_changed, this, [this] {
         m_reload_button->set_loading(m_tab->is_loading());
     });
+
+    // Extensions can give a button another look in each tab.
+    update_extension_buttons();
     QObject::connect(&tab, &Tab::performance_stats_changed, this, [this] {
         m_performance_monitor->set_stats(m_tab->performance_stats());
     });
@@ -2239,6 +2330,171 @@ void WindowToolbar::download_removed(u64, WebView::IsPrivate is_private)
         return;
     update_downloads_button();
     update_downloads_popover();
+}
+
+
+static QColor color_from_json(Optional<JsonArray const&> array, QColor fallback)
+{
+    if (!array.has_value() || array->size() != 4)
+        return fallback;
+    auto channel = [&](size_t index) { return static_cast<int>(array->at(index).get_double_with_precision_loss().value_or(0)); };
+    return QColor(channel(0), channel(1), channel(2), channel(3));
+}
+
+static QIcon extension_icon(Optional<String> const& png_base64, StringView name, QPalette const& palette)
+{
+    auto const scale = ExtensionActionButton::ICON_SIZE;
+    if (png_base64.has_value()) {
+        if (auto png = decode_base64(*png_base64); !png.is_error()) {
+            QPixmap pixmap;
+            if (pixmap.loadFromData(png.value().data(), png.value().size()) && !pixmap.isNull()) {
+                pixmap.setDevicePixelRatio(static_cast<qreal>(qMax(pixmap.width(), pixmap.height())) / scale);
+                return QIcon(pixmap);
+            }
+        }
+    }
+
+    // Without an icon, the button shows the first letter of the extension's name, as Chromium does.
+    QPixmap pixmap(scale * 2, scale * 2);
+    pixmap.setDevicePixelRatio(2);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(Theme::chrome(palette).hover);
+    painter.drawRoundedRect(QRectF(0, 0, scale, scale), 3, 3);
+    QFont font;
+    font.setPixelSize(11);
+    font.setWeight(QFont::DemiBold);
+    painter.setFont(font);
+    painter.setPen(palette.color(QPalette::WindowText));
+    auto letter = name.is_empty() ? QString("?") : qstring_from_ak_string(name).left(1).toUpper();
+    painter.drawText(QRectF(0, 0, scale, scale), Qt::AlignCenter, letter);
+    return QIcon(pixmap);
+}
+
+void WindowToolbar::update_extension_buttons()
+{
+    auto const& actions = Application::the().extension_actions();
+
+    // The buttons are made again only when extensions come or go, so that their state otherwise carries over.
+    Vector<String> extension_ids;
+    actions.for_each([&](JsonValue const& action) {
+        if (action.is_object())
+            extension_ids.append(action.as_object().get_string("extensionId"sv).value_or({}));
+    });
+    bool buttons_match = extension_ids.size() == m_extension_buttons.size();
+    for (size_t i = 0; buttons_match && i < extension_ids.size(); ++i)
+        buttons_match = m_extension_buttons[i]->extension_id() == extension_ids[i];
+
+    if (!buttons_match) {
+        for (auto* button : m_extension_buttons)
+            button->deleteLater();
+        m_extension_buttons.clear();
+        for (auto const& extension_id : extension_ids) {
+            auto* button = new ExtensionActionButton(m_extension_buttons_container, extension_id);
+            m_extension_buttons_container->layout()->addWidget(button);
+            QObject::connect(button, &QToolButton::clicked, this, [this, button] {
+                // NB: The button is only checked while its popup is open.
+                auto popup_was_open = m_extension_popup && m_extension_popup->extension_id() == button->extension_id();
+                if (m_extension_popup)
+                    m_extension_popup->close();
+                button->setChecked(false);
+                if (popup_was_open || !m_tab || !m_tab->is_loaded())
+                    return;
+                HubConnection::the().async_extension_action_clicked(button->extension_id(), m_tab->view().view_id());
+            });
+            m_extension_buttons.append(button);
+        }
+    }
+
+    Optional<String> tab_key;
+    if (m_tab && m_tab->is_loaded())
+        tab_key = String::number(m_tab->view().view_id());
+
+    auto palette = Theme::chrome_palette(*this);
+    for (size_t i = 0; i < m_extension_buttons.size(); ++i) {
+        auto const& action = actions.at(i).as_object();
+        auto defaults = action.get_object("defaults"sv).value_or({});
+        Optional<JsonObject const&> tab;
+        if (tab_key.has_value()) {
+            if (auto tabs = action.get_object("tabs"sv); tabs.has_value())
+                tab = tabs->get_object(*tab_key);
+        }
+        // What is set for the tab overrides what is set for every tab.
+        auto get = [&](StringView key) -> Optional<JsonValue const&> {
+            if (tab.has_value()) {
+                if (auto value = tab->get(key); value.has_value())
+                    return value;
+            }
+            return defaults.get(key);
+        };
+        auto string = [&](StringView key) -> Optional<String> {
+            auto value = get(key);
+            if (value.has_value() && value->is_string())
+                return value->as_string();
+            return {};
+        };
+        auto array = [&](StringView key) -> Optional<JsonArray const&> {
+            auto value = get(key);
+            if (value.has_value() && value->is_array())
+                return value->as_array();
+            return {};
+        };
+
+        auto name = action.get_string("name"sv).value_or({});
+        auto title = string("title"sv).value_or(name);
+        auto enabled = get("enabled"sv).has_value() && get("enabled"sv)->is_bool() ? get("enabled"sv)->as_bool() : true;
+
+        auto* button = m_extension_buttons[i];
+        button->setIcon(extension_icon(string("icon"sv), name, palette));
+        button->setToolTip(qstring_from_ak_string(title));
+        button->setAccessibleName(qstring_from_ak_string(title));
+        button->setEnabled(enabled);
+        button->set_badge(qstring_from_ak_string(string("badgeText"sv).value_or({})),
+            color_from_json(array("badgeBackgroundColor"sv), QColor(0x5f, 0x63, 0x68)),
+            color_from_json(array("badgeTextColor"sv), Qt::white));
+    }
+
+    m_extension_buttons_container->setVisible(!m_extension_buttons.is_empty());
+}
+
+void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, URL::URL const& url)
+{
+    // A popup belongs to the tab it was opened for, which is the tab this toolbar shows.
+    if (&tab != m_tab.data())
+        return;
+
+    ExtensionActionButton* button = nullptr;
+    for (auto* candidate : m_extension_buttons) {
+        if (candidate->extension_id() == extension_id)
+            button = candidate;
+    }
+    if (!button || !button->isVisible())
+        return;
+
+    if (m_extension_popup)
+        m_extension_popup->close();
+
+    auto* popup = new ExtensionPopup(this, extension_id, tab.view(), url);
+    m_extension_popup = popup;
+    popup->on_visibility_change = [button = QPointer(button)](bool visible) {
+        if (button)
+            button->setChecked(visible);
+    };
+    popup->on_resize = [this, popup, button = QPointer(button)] {
+        if (button)
+            move_popover_to_button(*popup, *button);
+    };
+    popup->adjustSize();
+    move_popover_to_button(*popup, *button);
+    popup->show();
+}
+
+void WindowToolbar::extension_popup_did_request_size(u64 view_id, Gfx::IntSize size)
+{
+    if (m_extension_popup && m_extension_popup->view_id() == view_id)
+        m_extension_popup->set_page_size(size);
 }
 
 }

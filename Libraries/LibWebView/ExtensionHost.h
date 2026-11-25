@@ -22,6 +22,7 @@
 
 namespace WebView {
 
+class ExtensionActions;
 struct LoadedExtension;
 class WebContentPage;
 
@@ -64,6 +65,13 @@ public:
     // The favicon of a page, as PNG no larger than size pixels on either side: what a tab showing the page shows, or
     // else what the history keeps.
     Optional<ByteBuffer> favicon_png_for_page(URL::URL const&, int size);
+
+    // The toolbar buttons of extensions, as JSON for the UI.
+    String serialized_actions();
+    // The user clicked the toolbar button of an extension while a tab showed: the button opens its popup, or else the
+    // extension is told of the click.
+    // https://developer.chrome.com/docs/extensions/reference/api/action#event-onClicked
+    void action_clicked(String const& extension_id, u64 view_id);
 
     // Called as the application tears down, after which no event is dispatched.
     void stop_dispatching_events() { m_dispatches_events = false; }
@@ -145,6 +153,8 @@ private:
         JsonObject managed;
     };
     HashMap<String, ExtensionStorage> m_storage;
+
+    NonnullOwnPtr<ExtensionActions> m_actions;
 
     // NB: The UI keeps the history, in a database this reads too.
     RefPtr<Database::Database> m_history_database;

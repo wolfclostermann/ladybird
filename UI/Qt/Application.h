@@ -8,6 +8,7 @@
 
 #include <AK/ByteString.h>
 #include <AK/Function.h>
+#include <AK/JsonArray.h>
 #include <AK/Platform.h>
 #include <Hub/Application.h>
 #include <Hub/ConnectionFromUI.h>
@@ -169,6 +170,13 @@ public:
     bool confirm_stop_active_downloads(QWidget* parent = nullptr);
 
     void update_feedback_buttons();
+
+    // The toolbar buttons of extensions, as the Hub describes them: for each, what it shows in every tab, and what it
+    // shows instead in particular tabs.
+    JsonArray const& extension_actions() const { return m_extension_actions; }
+    void set_extension_actions(JsonArray);
+    void show_extension_popup(String const& extension_id, u64 tab_view_id, URL::URL const&);
+    void extension_popup_did_request_size(u64 view_id, Gfx::IntSize);
     void report_active_view() const;
     // Tells the Hub the order of the tabs, once the current turn of the event loop has finished changing them.
     void report_tab_order_soon();
@@ -403,6 +411,7 @@ private:
     bool m_quit_in_progress { false };
     bool m_quit_is_finishing { false };
     bool m_tab_order_report_is_pending { false };
+    JsonArray m_extension_actions;
     Vector<QPointer<BrowserWindow>> m_windows_awaiting_quit_preflight;
 
 #if defined(AK_OS_LINUX)

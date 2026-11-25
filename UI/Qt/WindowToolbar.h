@@ -7,7 +7,11 @@
 #pragma once
 
 #include <AK/Optional.h>
+#include <AK/String.h>
+#include <AK/Vector.h>
 #include <AK/kmalloc.h>
+#include <LibGfx/Size.h>
+#include <LibURL/URL.h>
 #include <LibWebView/FileDownloader.h>
 #include <LibWebView/Forward.h>
 #include <LibWebView/Settings.h>
@@ -26,6 +30,8 @@ namespace Ladybird {
 
 class BrowserWindow;
 class DownloadsButton;
+class ExtensionActionButton;
+class ExtensionPopup;
 class DownloadsPopover;
 class FeedbackButton;
 class FeedbackPopover;
@@ -101,6 +107,10 @@ public:
     void show_downloads_popover();
     void update_downloads_button();
     void update_feedback_button();
+    // Shows the buttons of extensions as the application describes them, as they look for the tab that is shown.
+    void update_extension_buttons();
+    void show_extension_popup(String const& extension_id, Tab&, URL::URL const&);
+    void extension_popup_did_request_size(u64 view_id, Gfx::IntSize);
 
 private:
     virtual bool event(QEvent*) override;
@@ -182,6 +192,10 @@ private:
     DownloadsButton* m_downloads_button { nullptr };
     QPointer<DownloadsPopover> m_downloads_popover;
     size_t m_completed_download_count { 0 };
+
+    QWidget* m_extension_buttons_container { nullptr };
+    Vector<ExtensionActionButton*> m_extension_buttons;
+    QPointer<ExtensionPopup> m_extension_popup;
 
     FeedbackButton* m_feedback_button { nullptr };
     QPointer<FeedbackPopover> m_feedback_popover;

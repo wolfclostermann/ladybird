@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/JsonParser.h>
 #include <AK/JsonValue.h>
 #include <LibCore/Process.h>
 #include <LibGamepad/SDLGamepadSource.h>
@@ -341,6 +342,24 @@ void HubConnection::app_activate_or_open_tab_with_url(URL::URL url)
 void HubConnection::app_reopen_recently_closed_tab()
 {
     Application::the().reopen_recently_closed_tab(Application::the().active_window_if_any());
+}
+
+void HubConnection::app_extension_actions_changed(String actions_json)
+{
+    auto actions = JsonParser::parse(actions_json);
+    if (actions.is_error() || !actions.value().is_array())
+        return;
+    Application::the().set_extension_actions(move(actions.value().as_array()));
+}
+
+void HubConnection::app_show_extension_popup(String extension_id, u64 tab_view_id, URL::URL url)
+{
+    Application::the().show_extension_popup(extension_id, tab_view_id, url);
+}
+
+void HubConnection::app_extension_popup_did_request_size(u64 view_id, Gfx::IntSize size)
+{
+    Application::the().extension_popup_did_request_size(view_id, size);
 }
 
 void HubConnection::app_open_view_in_new_tab(u64 view_id, Optional<u64> source_view_id, WebView::IsPrivate is_private, Web::HTML::ActivateTab activate_tab)

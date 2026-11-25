@@ -196,14 +196,57 @@ static constexpr StringView runtime_source = R"~~~(
             notifications: namespace("notifications", ["create", "update", "clear", "getAll", "getPermissionLevel"],
                 ["onClosed", "onClicked", "onButtonClicked", "onPermissionLevelChanged", "onShowSettings"]),
             action: namespace("action", ["setIcon", "setTitle", "getTitle", "setBadgeText", "getBadgeText",
-                "setBadgeBackgroundColor", "setPopup", "getPopup", "enable", "disable", "openPopup"], ["onClicked"]),
+                "setBadgeBackgroundColor", "getBadgeBackgroundColor", "setBadgeTextColor", "getBadgeTextColor",
+                "setPopup", "getPopup", "enable", "disable", "isEnabled", "getUserSettings", "openPopup"], ["onClicked"]),
             commands: namespace("commands", ["getAll"], ["onCommand"]),
             permissions: namespace("permissions", ["contains", "getAll", "request", "remove"], ["onAdded", "onRemoved"]),
             contextMenus: namespace("contextMenus", ["create", "update", "remove", "removeAll"], ["onClicked"]),
             alarms: namespace("alarms", ["create", "get", "getAll", "clear", "clearAll"], ["onAlarm"]),
             offscreen: namespace("offscreen", ["createDocument", "closeDocument", "hasDocument"]),
         });
+        // ImageData keeps its size in getters, which JSON leaves out, so setIcon passes its pixels as a plain object.
+        const plainImageData = (imageData) => ({ width: imageData.width, height: imageData.height,
+            data: Array.from(imageData.data) });
+        const setIcon = chrome.action.setIcon;
+        chrome.action.setIcon = (details, ...rest) => {
+            const imageData = details?.imageData;
+            if (imageData && typeof imageData === "object") {
+                let converted;
+                if ("width" in imageData && "data" in imageData) {
+                    converted = plainImageData(imageData);
+                } else {
+                    converted = {};
+                    for (const [size, image] of Object.entries(imageData))
+                        converted[size] = plainImageData(image);
+                }
+                details = { ...details, imageData: converted };
+            }
+            return setIcon(details, ...rest);
+        };
         chrome.browserAction = chrome.action;
+
+        // A popup takes the size of its page, as Chromium sizes one, so a page tells its size to the UI process,
+        // which passes it on only for a popup.
+        if (typeof window !== "undefined" && window.top === window) {
+            const reportSize = () => {
+                const root = document.documentElement;
+                if (!root)
+                    return;
+                const previousWidth = root.style.width;
+                root.style.width = "max-content";
+                const width = Math.ceil(root.getBoundingClientRect().width);
+                root.style.width = previousWidth;
+                // NB: The root's scrollHeight is never less than the viewport's, which would keep a popup from
+                //     shrinking.
+                const height = Math.ceil(Math.max(root.getBoundingClientRect().height,
+                    document.body ? document.body.scrollHeight : 0));
+                nativeCall("_popup.setSize", JSON.stringify([width, height])).catch(() => {});
+            };
+            window.addEventListener("load", () => {
+                reportSize();
+                new ResizeObserver(reportSize).observe(document.body ?? document.documentElement);
+            });
+        }
     }
 
     // https://developer.chrome.com/docs/extensions/reference/permissions-list

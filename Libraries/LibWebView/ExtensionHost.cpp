@@ -15,6 +15,7 @@
 #include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalNavigable.h>
 #include <LibWebView/CanonicalTraversable.h>
+#include <LibWebView/ExtensionActions.h>
 #include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/HistoryStore.h>
@@ -418,6 +419,27 @@ void ExtensionHost::handle_api_call(WebContentPage& page, String const& extensio
     call(page, *extension, context, api, arguments, move(complete));
 }
 
+// The URL against which a context's relative paths are resolved. A service worker's are relative to its script, which
+// runs in a page made for it here.
+static URL::URL base_url_for_paths(LoadedExtension const& extension, auto const& context)
+{
+    auto root = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/", extension.id)));
+    VERIFY(root.has_value());
+
+    auto url = URL::Parser::basic_parse(context.url);
+    if (!url.has_value())
+        return *root;
+    if (url->serialize_path() == MUST(String::formatted("/{}", generated_background_page_path))) {
+        if (auto background = extension.manifest.get_object("background"sv); background.has_value()) {
+            if (auto worker = background->get_string("service_worker"sv); worker.has_value()) {
+                if (auto worker_url = URL::Parser::basic_parse(*worker, *root); worker_url.has_value())
+                    return *worker_url;
+            }
+        }
+    }
+    return *url;
+}
+
 void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension, Context const& context, StringView api, JsonArray const& arguments, Completion complete)
 {
     // What the tabs and windows APIs give leaves out what the extension may not see of the tabs.
@@ -542,11 +564,22 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         return complete(result(windows));
     }
 
-    // FIXME: Show the toolbar button of an extension, with what these set.
+    // The size the page in a view would fit in, which only the popup of a toolbar button takes on, as in Chromium.
+    // https://developer.chrome.com/docs/extensions/develop/ui/add-popup
+    if (api == "_popup.setSize"sv) {
+        auto& view = page.view();
+        auto width = argument(0).get_double_with_precision_loss();
+        auto height = argument(1).get_double_with_precision_loss();
+        if (view.owner_view_id().has_value() && width.has_value() && height.has_value())
+            Application::the().extension_popup_did_request_size(view.view_id(), { clamp(*width, 0.0, 10000.0), clamp(*height, 0.0, 10000.0) });
+        return complete(undefined_result());
+    }
+
     if (api.starts_with("action."sv) || api.starts_with("browserAction."sv)) {
         auto function = api.substring_view(api.find('.').value() + 1);
-        if (function.starts_with("set"sv) || function.is_one_of("enable"sv, "disable"sv))
-            return complete(undefined_result());
+        if (function == "openPopup"sv)
+            return complete(error("chrome.action.openPopup is not implemented yet"sv));
+        return complete(m_actions->call(extension, base_url_for_paths(extension, context), function, arguments));
     }
 
     if (api.starts_with("tabs."sv))
@@ -1586,6 +1619,7 @@ void ExtensionHost::view_did_change_title(ViewImplementation& view)
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onRemoved
 void ExtensionHost::view_will_be_destroyed(u64 view_id)
 {
+    m_actions->view_will_be_destroyed(view_id);
     if (!m_announced_tabs.remove(view_id) || !dispatches_events())
         return;
 
@@ -1618,7 +1652,13 @@ void ExtensionHost::active_view_did_change(Optional<u64> view_id)
     broadcast_to_extension_pages("tabs.onActivated"sv, arguments);
 }
 
-ExtensionHost::ExtensionHost() = default;
+ExtensionHost::ExtensionHost()
+    : m_actions(make<ExtensionActions>())
+{
+    m_actions->on_change = [] {
+        Application::the().extension_actions_changed();
+    };
+}
 ExtensionHost::~ExtensionHost() = default;
 
 HistoryStore* ExtensionHost::history_store()
@@ -1949,6 +1989,43 @@ void ExtensionHost::bookmarks_call(StringView function, JsonArray const& argumen
 
     // FIXME: Change bookmarks, which the UI keeps, through the UI.
     complete(error(MUST(String::formatted("chrome.bookmarks.{} is not implemented yet", function))));
+}
+
+String ExtensionHost::serialized_actions()
+{
+    return m_actions->serialized(Application::the().extensions());
+}
+
+void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
+{
+    auto const* extension = Application::the().extension_with_id(extension_id);
+    if (!extension || !action_of(*extension).has_value())
+        return;
+    auto views = tab_views();
+    Optional<size_t> index;
+    for (size_t i = 0; i < views.size(); ++i) {
+        if (views[i].view_id() == view_id)
+            index = i;
+    }
+    if (!index.has_value())
+        return;
+
+    auto click = m_actions->click(*extension, view_id);
+    if (!click.enabled)
+        return;
+
+    if (click.popup.has_value()) {
+        auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension->id, click.popup->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+        if (url.has_value())
+            Application::the().show_extension_popup(extension->id, view_id, *url);
+        return;
+    }
+
+    if (!dispatches_events())
+        return;
+    JsonArray arguments;
+    arguments.must_append(tabs_as_seen_by(*extension, tab_object_for(views[*index], *index)));
+    broadcast_event(extension->id, "action.onClicked"sv, arguments);
 }
 
 }

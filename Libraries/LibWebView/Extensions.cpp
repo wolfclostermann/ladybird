@@ -176,42 +176,62 @@ ErrorOr<ByteBuffer> read_extension_file(LoadedExtension const& extension, String
     return read_file(extension.directory, relative_path.trim("/"sv, TrimMode::Left));
 }
 
+Optional<String> best_icon_path(JsonObject const& icons, int size)
+{
+    // The smallest icon at least as large as asked for, or else the largest there is.
+    Optional<String> best_path;
+    int best_size = 0;
+    icons.for_each_member([&](String const& key, JsonValue const& value) {
+        auto icon_size = key.to_number<int>();
+        if (!icon_size.has_value() || *icon_size <= 0 || !value.is_string())
+            return;
+        bool is_better = !best_path.has_value()
+            || (best_size < size && *icon_size > best_size)
+            || (*icon_size >= size && *icon_size < best_size);
+        if (is_better) {
+            best_path = value.as_string();
+            best_size = *icon_size;
+        }
+    });
+    return best_path;
+}
+
+Optional<JsonObject const&> action_of(LoadedExtension const& extension)
+{
+    if (auto action = extension.manifest.get_object("action"sv); action.has_value())
+        return action;
+    return extension.manifest.get_object("browser_action"sv);
+}
+
+static Optional<String> action_default_icon_path(LoadedExtension const& extension, int size)
+{
+    auto action = action_of(extension);
+    if (!action.has_value())
+        return {};
+    if (auto icon = action->get_string("default_icon"sv); icon.has_value())
+        return icon.copy();
+    if (auto icons = action->get_object("default_icon"sv); icons.has_value())
+        return best_icon_path(*icons, size);
+    return {};
+}
+
 // https://developer.chrome.com/docs/extensions/reference/manifest/icons
 Optional<String> icon_path(LoadedExtension const& extension, int size)
 {
-    auto best_of = [&](JsonObject const& icons) -> Optional<String> {
-        // The smallest icon at least as large as asked for, or else the largest there is.
-        Optional<String> best_path;
-        int best_size = 0;
-        icons.for_each_member([&](String const& key, JsonValue const& value) {
-            auto icon_size = key.to_number<int>();
-            if (!icon_size.has_value() || *icon_size <= 0 || !value.is_string())
-                return;
-            bool is_better = !best_path.has_value()
-                || (best_size < size && *icon_size > best_size)
-                || (*icon_size >= size && *icon_size < best_size);
-            if (is_better) {
-                best_path = value.as_string();
-                best_size = *icon_size;
-            }
-        });
-        return best_path;
-    };
-
     if (auto icons = extension.manifest.get_object("icons"sv); icons.has_value()) {
-        if (auto path = best_of(*icons); path.has_value())
+        if (auto path = best_icon_path(*icons, size); path.has_value())
             return path;
     }
     // Without icons of its own, an extension is shown with its toolbar button's.
-    for (auto key : { "action"sv, "browser_action"sv }) {
-        auto action = extension.manifest.get_object(key);
-        if (!action.has_value())
-            continue;
-        if (auto icon = action->get_string("default_icon"sv); icon.has_value())
-            return icon.copy();
-        if (auto icons = action->get_object("default_icon"sv); icons.has_value())
-            return best_of(*icons);
-    }
+    return action_default_icon_path(extension, size);
+}
+
+Optional<String> action_icon_path(LoadedExtension const& extension, int size)
+{
+    if (auto path = action_default_icon_path(extension, size); path.has_value())
+        return path;
+    if (auto icons = extension.manifest.get_object("icons"sv); icons.has_value())
+        return best_icon_path(*icons, size);
     return {};
 }
 

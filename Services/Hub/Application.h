@@ -88,6 +88,9 @@ private:
     virtual void open_url_in_new_tab(URL::URL const&, Web::HTML::ActivateTab, WebView::ViewImplementation const* source_view = nullptr) const override;
     virtual void activate_or_open_tab_with_url(URL::URL const&) const override;
     virtual void reopen_recently_closed_tab() const override;
+    virtual void extension_actions_changed() override;
+    virtual void show_extension_popup(String const& extension_id, u64 tab_view_id, URL::URL const&) override;
+    virtual void extension_popup_did_request_size(u64 view_id, Gfx::IntSize) override;
     virtual void open_urls_in_new_tabs(ReadonlySpan<URL::URL>) const override;
     virtual void open_url_in_new_window(URL::URL const&, WebView::IsPrivate) override;
     virtual void open_navigation_in_new_tab(Web::HTML::PreparedNavigationDescriptor, Web::HTML::ActivateTab, WebView::ViewImplementation const* source_view = nullptr) const override;

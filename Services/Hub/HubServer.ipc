@@ -239,6 +239,7 @@ endpoint HubServer
     cancel_unresumable_downloads() =|
     active_view_changed(Optional<u64> view_id) =|
     tab_order_changed(Vector<u64> view_ids) =|
+    extension_action_clicked(String extension_id, u64 view_id) =|
     answer_clipboard_text(u64 request_id, Utf16String text) =|
     answer_clipboard_item(u64 request_id, Web::Clipboard::SystemClipboardItem item) =|
     answer_download_path(u64 request_id, Optional<ByteString> path) =|

@@ -48,9 +48,19 @@ WEBVIEW_API ErrorOr<String> read_extension_text_file(LoadedExtension const&, Str
 // Reads any file of an extension, at a path relative to its directory, which the path may not leave.
 WEBVIEW_API ErrorOr<ByteBuffer> read_extension_file(LoadedExtension const&, StringView relative_path);
 
+// Of icons keyed by their sizes, as manifests list them, the path of the one that best shows at a size, in pixels.
+WEBVIEW_API Optional<String> best_icon_path(JsonObject const& icons, int size);
+
 // The path of the icon that best shows an extension at a size, in pixels: one of its own, or else its toolbar
 // button's.
 WEBVIEW_API Optional<String> icon_path(LoadedExtension const&, int size);
+
+// The manifest's description of the extension's toolbar button, if it has one: "action", or "browser_action" in
+// Manifest V2. https://developer.chrome.com/docs/extensions/reference/api/action#manifest
+WEBVIEW_API Optional<JsonObject const&> action_of(LoadedExtension const&);
+
+// The path of the icon of the extension's toolbar button at a size: the button's own, or else the extension's.
+WEBVIEW_API Optional<String> action_icon_path(LoadedExtension const&, int size);
 
 // The path of an extension's options page, if it has one.
 WEBVIEW_API Optional<String> options_page_path(LoadedExtension const&);

@@ -2027,6 +2027,38 @@ void Application::crash_reports_changed()
     update_feedback_buttons();
 }
 
+void Application::set_extension_actions(JsonArray actions)
+{
+    m_extension_actions = move(actions);
+    for (auto* widget : QApplication::topLevelWidgets()) {
+        if (auto* window = as_if<BrowserWindow>(widget))
+            window->toolbar().update_extension_buttons();
+    }
+}
+
+void Application::show_extension_popup(String const& extension_id, u64 tab_view_id, URL::URL const& url)
+{
+    for (auto* widget : QApplication::topLevelWidgets()) {
+        auto* window = as_if<BrowserWindow>(widget);
+        if (!window)
+            continue;
+        for (int i = 0; i < window->tab_count(); ++i) {
+            if (auto* tab = window->tab_at(i); tab && tab->is_loaded() && tab->view().view_id() == tab_view_id) {
+                window->toolbar().show_extension_popup(extension_id, *tab, url);
+                return;
+            }
+        }
+    }
+}
+
+void Application::extension_popup_did_request_size(u64 view_id, Gfx::IntSize size)
+{
+    for (auto* widget : QApplication::topLevelWidgets()) {
+        if (auto* window = as_if<BrowserWindow>(widget))
+            window->toolbar().extension_popup_did_request_size(view_id, size);
+    }
+}
+
 void Application::update_feedback_buttons()
 {
     for (auto* widget : QApplication::topLevelWidgets()) {

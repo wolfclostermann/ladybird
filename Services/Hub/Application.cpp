@@ -110,6 +110,8 @@ void Application::ui_did_start()
     m_webdriver_windows_awaiting_ui.clear();
     if (m_openssl_mismatch_awaiting_ui.has_value())
         display_openssl_mismatch(m_openssl_mismatch_awaiting_ui.release_value());
+    if (!extensions().is_empty())
+        extension_actions_changed();
 }
 
 void Application::set_active_view(Optional<u64> view_id)
@@ -180,6 +182,26 @@ void Application::reopen_recently_closed_tab() const
 {
     if (auto* ui = ConnectionFromUI::the())
         ui->async_app_reopen_recently_closed_tab();
+}
+
+void Application::extension_actions_changed()
+{
+    if (!m_ui_did_start)
+        return;
+    if (auto* ui = ConnectionFromUI::the())
+        ui->async_app_extension_actions_changed(extension_host().serialized_actions());
+}
+
+void Application::show_extension_popup(String const& extension_id, u64 tab_view_id, URL::URL const& url)
+{
+    if (auto* ui = ConnectionFromUI::the())
+        ui->async_app_show_extension_popup(extension_id, tab_view_id, url);
+}
+
+void Application::extension_popup_did_request_size(u64 view_id, Gfx::IntSize size)
+{
+    if (auto* ui = ConnectionFromUI::the())
+        ui->async_app_extension_popup_did_request_size(view_id, size);
 }
 
 void Application::open_urls_in_new_tabs(ReadonlySpan<URL::URL> urls) const

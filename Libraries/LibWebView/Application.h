@@ -336,6 +336,12 @@ public:
     virtual Optional<ViewImplementation&> open_blank_new_tab(Web::HTML::ActivateTab, ViewImplementation const* = nullptr) const { return {}; }
     virtual void open_url_in_new_tab(URL::URL const&, Web::HTML::ActivateTab, ViewImplementation const* source_view = nullptr) const;
     virtual void activate_or_open_tab_with_url(URL::URL const&) const;
+    // What the toolbar buttons of extensions show changed, which a UI asks the extension host for.
+    virtual void extension_actions_changed() { }
+    // Shows the popup of an extension's toolbar button, at url, over the tab with the view.
+    virtual void show_extension_popup(String const& /* extension_id */, u64 /* tab_view_id */, URL::URL const&) { }
+    // The page in a view that may be the popup of an extension's button would fit in this size, in CSS pixels.
+    virtual void extension_popup_did_request_size(u64 /* view_id */, Gfx::IntSize) { }
     // Reopens the tab or window that was closed most recently, as the UI's Reopen Closed Tab does.
     virtual void reopen_recently_closed_tab() const { }
     virtual void open_urls_in_new_tabs(ReadonlySpan<URL::URL>) const;
