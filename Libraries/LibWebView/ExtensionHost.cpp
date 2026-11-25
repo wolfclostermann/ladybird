@@ -218,6 +218,61 @@ static ExtensionHost::CallResult error(StringView message)
     return { .is_error = true, .payload = MUST(String::from_utf8(message)) };
 }
 
+// The permission that the functions of an API namespace need, if they need one. Those of tabs, windows, runtime and
+// the like need none, though the tabs API leaves out what a tab shows unless the extension may see it.
+// https://developer.chrome.com/docs/extensions/reference/permissions-list
+static Optional<StringView> permission_needed_for(StringView api)
+{
+    auto name = api.substring_view(0, api.find('.').value_or(api.length()));
+    if (name.is_one_of("storage"sv, "history"sv, "bookmarks"sv, "sessions"sv, "search"sv, "scripting"sv, "webNavigation"sv,
+            "notifications"sv, "alarms"sv, "contextMenus"sv, "offscreen"sv))
+        return name;
+    return {};
+}
+
+// A tab object as an extension may see it: without the URL and title of a page it has no access to, as Chromium
+// scrubs them.
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab
+static JsonObject tab_as_seen_by(LoadedExtension const& extension, JsonObject tab)
+{
+    auto may_see = [&](StringView key) {
+        auto url = tab.get_string(key);
+        if (!url.has_value())
+            return true;
+        auto parsed = URL::Parser::basic_parse(*url);
+        return parsed.has_value() && extension_may_see_tab_with_url(extension, *parsed);
+    };
+    if (!may_see("url"sv)) {
+        tab.remove("url"sv);
+        tab.remove("title"sv);
+        tab.remove("favIconUrl"sv);
+    }
+    if (!may_see("pendingUrl"sv))
+        tab.remove("pendingUrl"sv);
+    return tab;
+}
+
+// Scrubs the tabs in what the tabs and windows APIs give: a tab, a window with its tabs, or an array of either.
+static JsonValue tabs_as_seen_by(LoadedExtension const& extension, JsonValue const& value)
+{
+    if (value.is_array()) {
+        JsonArray array;
+        value.as_array().for_each([&](auto const& element) { array.must_append(tabs_as_seen_by(extension, element)); });
+        return array;
+    }
+    if (!value.is_object())
+        return value;
+    auto const& object = value.as_object();
+    if (object.has("index"sv) && object.has("windowId"sv))
+        return tab_as_seen_by(extension, object);
+    if (auto tabs = object.get_array("tabs"sv); tabs.has_value()) {
+        auto window = object;
+        window.set("tabs"sv, tabs_as_seen_by(extension, *tabs));
+        return window;
+    }
+    return value;
+}
+
 // Whether an active document of the page could have run one of the extension's content scripts: whether the URL it
 // was created with, or the URL its navigable shows now, is one the extension's content scripts match.
 // NB: The WebContent process matches about:blank, srcdoc, data: and blob: documents by the URL of their creator, which
@@ -306,6 +361,11 @@ void ExtensionHost::handle_api_call(WebContentPage& page, String const& extensio
         return;
     }
 
+    if (auto permission = permission_needed_for(api); permission.has_value() && !extension_has_permission(*extension, *permission)) {
+        complete(error(MUST(String::formatted("chrome.{} needs the \"{}\" permission", api, *permission))));
+        return;
+    }
+
     JsonArray arguments;
     if (auto parsed = JsonParser::parse(arguments_json); !parsed.is_error() && parsed.value().is_array())
         arguments = parsed.value().as_array();
@@ -360,6 +420,17 @@ void ExtensionHost::handle_api_call(WebContentPage& page, String const& extensio
 
 void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension, Context const& context, StringView api, JsonArray const& arguments, Completion complete)
 {
+    // What the tabs and windows APIs give leaves out what the extension may not see of the tabs.
+    if (api.starts_with("tabs."sv) || api.starts_with("windows."sv)) {
+        complete = [&extension, complete = move(complete)](CallResult call_result) mutable {
+            if (!call_result.is_error && !call_result.payload.is_empty()) {
+                if (auto parsed = JsonParser::parse(call_result.payload); !parsed.is_error())
+                    call_result.payload = tabs_as_seen_by(extension, parsed.value()).serialized();
+            }
+            complete(move(call_result));
+        };
+    }
+
     auto argument = [&](size_t index) -> JsonValue {
         return index < arguments.size() ? arguments.at(index) : JsonValue {};
     };
@@ -409,7 +480,10 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
                     patterns.append(url->as_string());
                 else if (url->is_array())
                     url->as_array().for_each([&](auto const& value) { if (value.is_string()) patterns.append(value.as_string()); });
+                // Only a tab whose URL the extension may see can match one.
                 auto view_url = view.url();
+                if (!extension_may_see_tab_with_url(extension, view_url))
+                    continue;
                 if (!any_of(patterns, [&](auto const& pattern) { return Web::Extensions::match_pattern_matches(pattern, view_url); }))
                     continue;
             }
@@ -501,8 +575,49 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
     if (api == "windows.update"sv)
         return complete(result(window_object(false)));
 
-    if (api == "permissions.contains"sv)
-        return complete(result(true));
+    // https://developer.chrome.com/docs/extensions/reference/api/permissions
+    // FIXME: Grant optional permissions with permissions.request.
+    if (api == "permissions.contains"sv || api == "permissions.getAll"sv) {
+        auto manifest_strings = [&](StringView key) {
+            Vector<String> strings;
+            if (auto array = extension.manifest.get_array(key); array.has_value())
+                array->for_each([&](auto const& value) { if (value.is_string()) strings.append(value.as_string()); });
+            return strings;
+        };
+        auto is_pattern = [](StringView string) { return string == "<all_urls>"sv || string.contains("://"sv); };
+
+        if (api == "permissions.getAll"sv) {
+            JsonArray permissions;
+            JsonArray origins;
+            for (auto const& permission : manifest_strings("permissions"sv))
+                (is_pattern(permission) ? origins : permissions).must_append(permission);
+            for (auto const& origin : manifest_strings("host_permissions"sv))
+                origins.must_append(origin);
+            JsonObject all;
+            all.set("permissions"sv, move(permissions));
+            all.set("origins"sv, move(origins));
+            return complete(result(all));
+        }
+
+        auto wanted = argument(0).is_object() ? argument(0).as_object() : JsonObject {};
+        bool has_all = true;
+        if (auto permissions = wanted.get_array("permissions"sv); permissions.has_value()) {
+            permissions->for_each([&](auto const& permission) {
+                if (!permission.is_string() || !extension_has_permission(extension, permission.as_string()))
+                    has_all = false;
+            });
+        }
+        if (auto origins = wanted.get_array("origins"sv); origins.has_value()) {
+            // An origin pattern is held if the manifest names it, or a pattern covering every URL.
+            auto held = manifest_strings("host_permissions"sv);
+            held.extend(manifest_strings("permissions"sv));
+            origins->for_each([&](auto const& origin) {
+                if (!origin.is_string() || !(held.contains_slow(origin.as_string()) || held.contains_slow("<all_urls>"sv) || held.contains_slow("*://*/*"sv)))
+                    has_all = false;
+            });
+        }
+        return complete(result(has_all));
+    }
 
     complete(error(MUST(String::formatted("chrome.{} is not implemented yet", api))));
 }
@@ -520,7 +635,7 @@ JsonObject ExtensionHost::sender_for(WebContentPage& page, LoadedExtension const
         auto views = tab_views();
         for (size_t i = 0; i < views.size(); ++i) {
             if (&views[i] == &page.view()) {
-                sender.set("tab"sv, tab_object_for(views[i], i));
+                sender.set("tab"sv, tab_as_seen_by(extension, tab_object_for(views[i], i)));
                 sender.set("frameId"sv, context.frame_id);
                 break;
             }
@@ -1118,10 +1233,56 @@ void ExtensionHost::scripting_call(WebContentPage&, LoadedExtension const& exten
         return;
     }
 
+    // The extension needs host permissions for each frame it injects into, as in Chromium. A frame showing about:blank
+    // or about:srcdoc is its parent's to script.
+    // FIXME: Grant access to the active tab for the activeTab permission, once the toolbar button or a command invokes
+    //        an extension.
+    HashMap<u64, bool> frame_access;
+    if (view->has_traversable()) {
+        view->traversable().for_each_in_inclusive_subtree([&](CanonicalNavigable const& navigable) {
+            Optional<URL::URL> url;
+            for (auto const* frame = &navigable; frame; frame = frame->parent()) {
+                if (!frame->active_session_history_entry())
+                    continue;
+                auto const& frame_url = frame->active_document_url();
+                if (frame_url.scheme() == "about"sv && frame_url.serialize_path().is_one_of("blank"sv, "srcdoc"sv) && frame->parent())
+                    continue;
+                url = frame_url;
+                break;
+            }
+            frame_access.set(frame_id_of(navigable), url.has_value() && extension_has_host_access(extension, *url, HostAccess::Explicit));
+            return IterationDecision::Continue;
+        });
+    } else {
+        frame_access.set(0, extension_has_host_access(extension, view->url(), HostAccess::Explicit));
+    }
+    auto no_access = [&](u64 frame_id) {
+        complete(error(MUST(String::formatted("Cannot access the contents of frame {} of tab {}. The extension's manifest must ask for permission to access its host.", frame_id, *tab_id))));
+    };
+
     JsonObject frame_target;
-    frame_target.set("allFrames"sv, target.get_bool("allFrames"sv).value_or(false));
-    if (auto frame_ids = target.get_array("frameIds"sv); frame_ids.has_value())
+    if (auto frame_ids = target.get_array("frameIds"sv); frame_ids.has_value()) {
+        for (auto const& frame_id : frame_ids->values()) {
+            auto id = frame_id.get_integer<u64>();
+            if (!id.has_value() || !frame_access.get(*id).value_or(false))
+                return no_access(id.value_or(0));
+        }
         frame_target.set("frameIds"sv, *frame_ids);
+    } else if (target.get_bool("allFrames"sv).value_or(false)) {
+        // Frames the extension may not access are left out, but the tab's own document must be one it may.
+        if (!frame_access.get(0).value_or(false))
+            return no_access(0);
+        JsonArray frame_ids;
+        for (auto const& [frame_id, has_access] : frame_access) {
+            if (has_access)
+                frame_ids.must_append(frame_id);
+        }
+        frame_target.set("frameIds"sv, move(frame_ids));
+    } else {
+        if (!frame_access.get(0).value_or(false))
+            return no_access(0);
+        frame_target.set("allFrames"sv, false);
+    }
 
     auto files = injection.get_array("files"sv);
     JsonObject details;
@@ -1247,12 +1408,50 @@ bool ExtensionHost::dispatches_events() const
 }
 
 // The events of the tabs and webNavigation APIs go to the pages of extensions, not to their content scripts.
+// The arguments of an event of tabs or webNavigation as an extension may see them, or nothing if it may not see the
+// event at all: the events of an API that needs a permission go only to extensions with it, and those of tabs leave out
+// what the extension may not see of the tab.
+static Optional<JsonArray> event_arguments_for(LoadedExtension const& extension, StringView event, JsonArray const& arguments)
+{
+    if (auto permission = permission_needed_for(event); permission.has_value() && !extension_has_permission(extension, *permission))
+        return {};
+
+    if (event == "tabs.onCreated"sv && arguments.size() == 1 && arguments.at(0).is_object()) {
+        JsonArray scrubbed;
+        scrubbed.must_append(tab_as_seen_by(extension, arguments.at(0).as_object()));
+        return scrubbed;
+    }
+
+    // An update to what the extension may not see of a tab, and nothing else, is not told of.
+    if (event == "tabs.onUpdated"sv && arguments.size() == 3 && arguments.at(1).is_object() && arguments.at(2).is_object()) {
+        auto tab = tab_as_seen_by(extension, arguments.at(2).as_object());
+        auto change_info = arguments.at(1).as_object();
+        if (!tab.has("url"sv)) {
+            change_info.remove("url"sv);
+            change_info.remove("title"sv);
+            change_info.remove("favIconUrl"sv);
+            if (change_info.size() == 0)
+                return {};
+        }
+        JsonArray scrubbed;
+        scrubbed.must_append(arguments.at(0));
+        scrubbed.must_append(move(change_info));
+        scrubbed.must_append(move(tab));
+        return scrubbed;
+    }
+    return arguments;
+}
+
 void ExtensionHost::broadcast_to_extension_pages(StringView event, JsonArray const& arguments)
 {
     JsonObject target;
     target.set("contextType"sv, "extension_page"sv);
 
     for (auto const& extension : Application::the().extensions()) {
+        auto extension_arguments = event_arguments_for(extension, event, arguments);
+        if (!extension_arguments.has_value())
+            continue;
+
         Vector<ViewImplementation&> views;
         ViewImplementation::for_each_view([&](ViewImplementation& view) {
             if (Application::the().extension_background_view(extension.id) == &view || (view.url().scheme() == "chrome-extension"sv && view.url().serialized_host() == extension.id))
@@ -1260,7 +1459,7 @@ void ExtensionHost::broadcast_to_extension_pages(StringView event, JsonArray con
             return IterationDecision::Continue;
         });
         for (auto& view : views)
-            dispatch_event(view, extension.id, target, event, arguments, [](auto) { });
+            dispatch_event(view, extension.id, target, event, *extension_arguments, [](auto) { });
     }
 }
 

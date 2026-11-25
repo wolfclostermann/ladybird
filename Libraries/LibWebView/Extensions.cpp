@@ -13,6 +13,7 @@
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
 #include <LibURL/URL.h>
+#include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/LocalFileRoot.h>
 #include <LibWebView/Utilities.h>
@@ -256,6 +257,40 @@ ErrorOr<IPC::File> file_with_contents(ReadonlyBytes contents)
 bool extension_has_permission(LoadedExtension const& extension, StringView permission)
 {
     return strings_of(extension.manifest, "permissions"sv).contains_slow(permission);
+}
+
+static bool is_match_pattern(StringView string)
+{
+    return string == "<all_urls>"sv || string.contains("://"sv);
+}
+
+bool extension_has_host_access(LoadedExtension const& extension, URL::URL const& url, HostAccess access)
+{
+    if (url.scheme() == "chrome-extension"sv && url.serialized_host() == extension.id)
+        return true;
+
+    // Manifest V3 names hosts in host_permissions, and Manifest V2 among its permissions.
+    Vector<String> patterns = strings_of(extension.manifest, "host_permissions"sv);
+    for (auto& permission : strings_of(extension.manifest, "permissions"sv)) {
+        if (is_match_pattern(permission))
+            patterns.append(move(permission));
+    }
+    auto matches = [&](String const& pattern) { return Web::Extensions::match_pattern_matches(pattern, url); };
+    if (any_of(patterns, matches))
+        return true;
+
+    if (access == HostAccess::IncludingContentScripts) {
+        for (auto const& content_script : extension.content_scripts.values()) {
+            if (content_script.is_object() && any_of(strings_of(content_script.as_object(), "matches"sv), matches))
+                return true;
+        }
+    }
+    return false;
+}
+
+bool extension_may_see_tab_with_url(LoadedExtension const& extension, URL::URL const& url)
+{
+    return extension_has_permission(extension, "tabs"sv) || extension_has_host_access(extension, url, HostAccess::IncludingContentScripts);
 }
 
 // https://developer.chrome.com/docs/extensions/reference/manifest/web-accessible-resources

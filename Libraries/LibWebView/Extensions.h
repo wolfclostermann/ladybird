@@ -14,6 +14,7 @@
 #include <AK/Optional.h>
 #include <AK/Vector.h>
 #include <LibIPC/File.h>
+#include <LibURL/Forward.h>
 #include <LibWebView/Export.h>
 
 // WebExtensions, loaded from directories that hold them unpacked: https://developer.chrome.com/docs/extensions
@@ -54,7 +55,20 @@ enum class ExtensionFileRequester : u8 {
 // https://developer.chrome.com/docs/extensions/how-to/ui/favicons
 inline constexpr StringView favicon_path = "_favicon"sv;
 
+// https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions
 WEBVIEW_API bool extension_has_permission(LoadedExtension const&, StringView permission);
+
+enum class HostAccess : u8 {
+    // The hosts that the manifest's host permissions name, which scripting needs.
+    Explicit,
+    // Those, and the hosts its content scripts match, which let it see the URLs and titles of tabs.
+    IncludingContentScripts,
+};
+// Whether an extension may access a URL: its own, or one its host permissions match.
+// https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions#host-permissions
+WEBVIEW_API bool extension_has_host_access(LoadedExtension const&, URL::URL const&, HostAccess);
+// Whether an extension may see the URL and title of a tab that shows a URL: with the "tabs" permission or host access.
+WEBVIEW_API bool extension_may_see_tab_with_url(LoadedExtension const&, URL::URL const&);
 // Whether web pages may load the file at the path, relative to the extension's root.
 WEBVIEW_API bool is_web_accessible(LoadedExtension const&, StringView path);
 

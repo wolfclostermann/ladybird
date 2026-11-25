@@ -206,6 +206,15 @@ static constexpr StringView runtime_source = R"~~~(
         chrome.browserAction = chrome.action;
     }
 
+    // https://developer.chrome.com/docs/extensions/reference/permissions-list
+    // The namespaces that need a permission are there only with it.
+    const permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
+    for (const name of ["storage", "webNavigation", "scripting", "history", "bookmarks", "sessions", "search",
+        "notifications", "contextMenus", "alarms", "offscreen"]) {
+        if (!permissions.includes(name))
+            delete chrome[name];
+    }
+
     globalThis.chrome = chrome;
 
     // Runs the listeners of event with the arguments that arguments_json holds, and calls respond with the JSON of a
