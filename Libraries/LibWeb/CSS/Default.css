@@ -510,8 +510,8 @@ html|*:link, html|*:visited {
     outline: auto;
 }
 
-/* This matches the behavior of other engines. */
-html:focus-visible, body:focus-visible {
+/* This matches the behavior of other engines. A focused iframe's focus is in its document, which indicates it. */
+html:focus-visible, body:focus-visible, iframe:focus-visible {
     outline-style: none;
 }
 
