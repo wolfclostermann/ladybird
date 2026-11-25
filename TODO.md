@@ -10,8 +10,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       arbitrary and Vimium's `J`/`K` (previous/next tab) appear reversed.
 - [x] **`F` (open link in new tab):** Vimium simulates a click with `metaKey` (macOS) or `ctrlKey` held.
       Make that synthetic click from the extension's isolated world open the link in a new tab.
-- [ ] **`b` (bookmarks):** no bookmarks show. Check the path of `Bookmarks.json` that the UI uses, and the
-      shape Vimium's bookmark completer expects from `chrome.bookmarks.getTree()`.
+- [x] **`b` (bookmarks):** not a bug. Vimium's bookmark completer lists nothing until you type a query (as in
+      Chrome); typing matches bookmarks, including those in folders.
 - [ ] **`yy` (copy URL):** Vimium reports a copy, but nothing reaches the clipboard. It copies with
       `navigator.clipboard.writeText` inside its HUD frame.
 - [ ] **`/` (find):** the find box loses focus after each letter, probably when the page's selection
