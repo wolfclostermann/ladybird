@@ -2255,11 +2255,26 @@ void WebContentPage::did_change_background_color(Gfx::Color color)
         view().did_change_background_color({}, color);
 }
 
+static bool is_origin_of_loaded_extension(URL::Origin const& origin)
+{
+    if (origin.is_opaque() || origin.scheme() != "chrome-extension"sv)
+        return false;
+    return Application::the().extension_with_id(origin.host().serialize()) != nullptr;
+}
+
 // NB: The system clipboard belongs to the user, so a page reaches it only right after the user's own input to it, as
-//     with a copy or paste shortcut, a click on a page control, or the browser's Paste command.
+//     with a copy or paste shortcut, a click on a page control, or the browser's Paste command. The pages of the
+//     extensions that the user loaded reach it without, as extensions can in Chromium: Vimium copies from its HUD frame,
+//     whose page the user's key press in the page around it doesn't reach.
 void WebContentPage::did_insert_clipboard_item(Web::Clipboard::SystemClipboardItem item, String, Optional<Web::HTML::CrossProcessId> writing_document_id)
 {
-    if (!has_transient_user_activation())
+    auto is_written_by_extension = [&] {
+        if (!writing_document_id.has_value())
+            return false;
+        auto document = hosted_document_with_id(*writing_document_id);
+        return document && is_origin_of_loaded_extension(document->origin());
+    };
+    if (!has_transient_user_activation() && !is_written_by_extension())
         return;
 
     // A page writes only text, HTML and PNG data. Any other format can carry more, like a list of file URLs that the
@@ -2629,13 +2644,6 @@ void WebContentPage::did_request_clipboard_entries_for_paste(u64 request_id)
             items.append(move(item));
         page->async_retrieved_clipboard_entries(request_id, items);
     });
-}
-
-static bool is_origin_of_loaded_extension(URL::Origin const& origin)
-{
-    if (origin.is_opaque() || origin.scheme() != "chrome-extension"sv)
-        return false;
-    return Application::the().extension_with_id(origin.host().serialize()) != nullptr;
 }
 
 // NB: Outside a paste, a page reads only data that its own origin wrote to the clipboard, which tells it nothing new.
