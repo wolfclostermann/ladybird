@@ -219,6 +219,7 @@ public:
     Utf16String const& title() const { return m_title; }
 
     void set_favicon(Badge<WebContentPage>, Optional<Gfx::Bitmap const&> favicon) { set_favicon(favicon); }
+    RefPtr<Gfx::Bitmap const> favicon() const { return m_favicon; }
 
     String const& handle() const { return m_window_handle; }
 

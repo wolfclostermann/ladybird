@@ -950,7 +950,7 @@ bool Application::is_extension_background_view(ViewImplementation const& view) c
     return false;
 }
 
-ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage const& page, URL::URL const& url) const
+ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage const& page, URL::URL const& url)
 {
     if (url.scheme() != "chrome-extension"sv)
         return Error::from_errno(EINVAL);
@@ -967,7 +967,40 @@ ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage cons
     if (is_extension_background_view(page.view()) || page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_origin)))
         requester = ExtensionFileRequester::ExtensionPage;
 
+    auto path = URL::percent_decode(url.serialize_path());
+    auto relative_path = path.view().trim("/"sv, TrimMode::Left);
+    if (relative_path.trim("/"sv, TrimMode::Right) == favicon_path)
+        return open_favicon_for_extension(*extension, url, relative_path, requester);
+
     return open_extension_file(*extension, url.serialize_path(), requester);
+}
+
+// https://developer.chrome.com/docs/extensions/how-to/ui/favicons
+ErrorOr<IPC::File> Application::open_favicon_for_extension(LoadedExtension const& extension, URL::URL const& url, StringView relative_path, ExtensionFileRequester requester)
+{
+    if (!extension_has_permission(extension, "favicon"sv))
+        return Error::from_errno(EACCES);
+    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path))
+        return Error::from_errno(EACCES);
+
+    // The query is form-encoded, as URLSearchParams writes it. The size is ignored: the favicon comes at the size it
+    // was found at.
+    Optional<URL::URL> page_url;
+    for (auto parameter : url.query().value_or({}).split_view('&')) {
+        auto equals = parameter.find('=');
+        auto name = equals.has_value() ? parameter.substring_view(0, *equals) : parameter;
+        auto value = equals.has_value() ? parameter.substring_view(*equals + 1) : StringView {};
+        if (name == "pageUrl"sv)
+            page_url = URL::Parser::basic_parse(URL::percent_decode(value.replace("+"sv, " "sv, ReplaceMode::All)));
+    }
+    if (!page_url.has_value())
+        return Error::from_errno(EINVAL);
+
+    // FIXME: Chromium serves a default icon for a page without a favicon.
+    auto png = m_extension_host.favicon_png_for_page(*page_url);
+    if (!png.has_value())
+        return Error::from_errno(ENOENT);
+    return file_with_contents(png->bytes());
 }
 
 ErrorOr<void> Application::start_extension_background_pages()

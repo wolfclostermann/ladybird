@@ -20,6 +20,8 @@
 #include <LibWebView/SearchEngine.h>
 #include <LibWebView/Settings.h>
 #include <LibDatabase/Database.h>
+#include <LibGfx/Bitmap.h>
+#include <LibGfx/ImageFormats/PNGWriter.h>
 #include <LibCore/File.h>
 #include <LibWebView/Utilities.h>
 #include <LibWebView/ViewImplementation.h>
@@ -1302,6 +1304,24 @@ HistoryStore* ExtensionHost::history_store()
     m_history_database = database.release_value();
     m_history_store = store.release_value();
     return m_history_store.ptr();
+}
+
+Optional<ByteBuffer> ExtensionHost::favicon_png_for_page(URL::URL const& page_url)
+{
+    for (auto& view : tab_views()) {
+        if (view.url() != page_url)
+            continue;
+        if (auto favicon = view.favicon(); favicon) {
+            if (auto png = Gfx::PNGWriter::encode(*favicon); !png.is_error())
+                return png.release_value();
+        }
+    }
+
+    if (auto* store = history_store()) {
+        if (auto entry = store->entry_for_url(page_url); entry.has_value())
+            return move(entry->favicon_png);
+    }
+    return {};
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/history

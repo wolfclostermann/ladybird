@@ -49,6 +49,18 @@ enum class ExtensionFileRequester : u8 {
     WebPage,
 };
 
+// The path at which an extension with the "favicon" permission finds the favicons of pages, as
+// _favicon/?pageUrl=<url>&size=<pixels>.
+// https://developer.chrome.com/docs/extensions/how-to/ui/favicons
+inline constexpr StringView favicon_path = "_favicon"sv;
+
+WEBVIEW_API bool extension_has_permission(LoadedExtension const&, StringView permission);
+// Whether web pages may load the file at the path, relative to the extension's root.
+WEBVIEW_API bool is_web_accessible(LoadedExtension const&, StringView path);
+
+// A file a renderer can read the bytes from.
+WEBVIEW_API ErrorOr<IPC::File> file_with_contents(ReadonlyBytes);
+
 // Opens the file that a chrome-extension: URL's path names, for a renderer.
 WEBVIEW_API ErrorOr<IPC::File> open_extension_file(LoadedExtension const&, StringView url_path, ExtensionFileRequester);
 

@@ -61,6 +61,9 @@ public:
     void view_will_be_destroyed(u64 view_id);
     void active_view_did_change(Optional<u64> view_id);
 
+    // The favicon of a page, as PNG: what a tab showing the page shows, or else what the history keeps.
+    Optional<ByteBuffer> favicon_png_for_page(URL::URL const&);
+
     // Called as the application tears down, after which no event is dispatched.
     void stop_dispatching_events() { m_dispatches_events = false; }
 

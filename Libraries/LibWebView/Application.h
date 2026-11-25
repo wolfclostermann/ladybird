@@ -101,7 +101,8 @@ public:
     Vector<LoadedExtension> const& extensions() const { return m_extensions; }
     LoadedExtension const* extension_with_id(StringView id) const;
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
-    ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&) const;
+    ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&);
+    ErrorOr<IPC::File> open_favicon_for_extension(LoadedExtension const&, URL::URL const&, StringView relative_path, ExtensionFileRequester);
     ExtensionHost& extension_host() { return m_extension_host; }
     // The view that hosts an extension's background page, if it has one.
     ViewImplementation* extension_background_view(StringView extension_id) const;

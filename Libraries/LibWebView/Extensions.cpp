@@ -10,6 +10,7 @@
 #include <LibCore/File.h>
 #include <LibCrypto/Hash/Hash.h>
 #include <LibFileSystem/FileSystem.h>
+#include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
 #include <LibURL/URL.h>
 #include <LibWebView/Extensions.h>
@@ -217,21 +218,48 @@ static String generated_background_page(LoadedExtension const& extension)
     return MUST(builder.to_string());
 }
 
-static ErrorOr<IPC::File> file_with_contents(StringView contents)
+ErrorOr<IPC::File> file_with_contents(ReadonlyBytes contents)
 {
-    // A pipe holds the contents, so that nothing has to be written to disk. A background page is far smaller than the
-    // buffer of a pipe.
+    // Contents larger than the buffer of a pipe go to a file that nothing else can open, so that writing them doesn't
+    // wait for a reader.
+    static constexpr size_t smallest_pipe_buffer_size = 16 * KiB;
+    if (contents.size() > smallest_pipe_buffer_size) {
+        auto pattern = ByteString::formatted("{}/ladybird-extension-XXXXXX", Core::StandardPaths::tempfile_directory());
+        Vector<char> path;
+        path.append(pattern.characters(), pattern.length());
+        path.append('\0');
+        auto fd = TRY(Core::System::mkstemp(path.span()));
+        (void)Core::System::unlink(StringView { path.data(), pattern.length() });
+        auto file = TRY(Core::File::adopt_fd(fd, Core::File::OpenMode::ReadWrite, Core::File::ShouldCloseFileDescriptor::No));
+        auto write_and_rewind = [&]() -> ErrorOr<void> {
+            TRY(file->write_until_depleted(contents));
+            TRY(file->seek(0, SeekMode::SetPosition));
+            return {};
+        };
+        if (auto result = write_and_rewind(); result.is_error()) {
+            (void)Core::System::close(fd);
+            return result.release_error();
+        }
+        return IPC::File::adopt_fd(fd);
+    }
+
+    // Otherwise a pipe holds the contents, so that nothing has to be written to disk.
     auto fds = TRY(Core::System::pipe2(O_CLOEXEC));
     auto write_end = TRY(Core::File::adopt_fd(fds[1], Core::File::OpenMode::Write));
-    if (auto result = write_end->write_until_depleted(contents.bytes()); result.is_error()) {
+    if (auto result = write_end->write_until_depleted(contents); result.is_error()) {
         (void)Core::System::close(fds[0]);
         return result.release_error();
     }
     return IPC::File::adopt_fd(fds[0]);
 }
 
+bool extension_has_permission(LoadedExtension const& extension, StringView permission)
+{
+    return strings_of(extension.manifest, "permissions"sv).contains_slow(permission);
+}
+
 // https://developer.chrome.com/docs/extensions/reference/manifest/web-accessible-resources
-static bool is_web_accessible(LoadedExtension const& extension, StringView path)
+bool is_web_accessible(LoadedExtension const& extension, StringView path)
 {
     auto resources = extension.manifest.get_array("web_accessible_resources"sv);
     if (!resources.has_value())
@@ -264,7 +292,8 @@ ErrorOr<IPC::File> open_extension_file(LoadedExtension const& extension, StringV
     if (relative_path == generated_background_page_path) {
         if (requester != ExtensionFileRequester::ExtensionPage)
             return Error::from_errno(EACCES);
-        return file_with_contents(generated_background_page(extension));
+        auto page = generated_background_page(extension);
+        return file_with_contents(page.bytes());
     }
 
     // The roots keep the path, once its symbolic links are resolved, in the extension's directory.

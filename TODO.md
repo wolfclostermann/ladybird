@@ -24,7 +24,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] `tabs.move`, for `<<`/`>>`. Moves within a window only; `tabs.onMoved` isn't fired yet.
 - [x] `sessions.restore`, for `X` (reopen a closed tab). Only the most recent; no session IDs or `getRecentlyClosed` yet.
 - [x] `search.query`, for searching the web from `o`. Fails when no search engine is chosen (Ladybird's default).
-- [ ] The `chrome-extension://<id>/_favicon/` endpoint, for favicons in the Vomnibar.
+- [x] The `chrome-extension://<id>/_favicon/` endpoint, for favicons in the Vomnibar. No default icon for pages without one.
 
 ## Next phase: UI
 
