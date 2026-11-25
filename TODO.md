@@ -45,7 +45,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       place.
 - [ ] Format the new code with clang-format.
 - [ ] Close the security gaps before everyday use:
-  - an extension's frame can share a process with the web page around it;
+  - [x] an extension's frame could share a process with the web page around it;
   - [x] the browser process trusted a renderer's claim about which extension is calling an API;
   - the `matches` of an extension's `web_accessible_resources` aren't checked;
   - [x] permissions and host permissions weren't enforced;

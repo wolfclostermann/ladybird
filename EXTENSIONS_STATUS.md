@@ -159,8 +159,7 @@ feature is the realistic assumption.
 **Short answer:** with no extension loaded, very little changes. Almost every new path checks `has_extensions()` or
 returns early. **With an extension loaded, there are real gaps**, several of which matter even if you trust the
 extension, because they let a *compromised web content process* or a *malicious web page* take advantage of the
-extension's privileges. The branch should be treated as **not safe for everyday browsing** until the first three
-items below are fixed.
+extension's privileges. The three high-severity items below are fixed; the medium ones remain.
 
 ### High
 
@@ -174,12 +173,16 @@ items below are fixed.
    the event went to. What remains is item 2: a web page that shares a process with an extension frame can still act
    as that extension.
 
-2. **Extension frames can share a process with web content.**
-   (`Libraries/LibWebView/Application.cpp:963`.) Vimium's HUD and Vomnibar are `chrome-extension:` iframes inside
-   ordinary web pages. They run in the page's WebContent process, so they get the privileges of an extension page,
-   including reading all of the extension's files (`open_extension_file_for_page` decides by "does this page host an
-   environment with the extension's storage key"). A renderer exploit in that process gets the same. Chromium puts
-   extension frames into separate extension processes.
+2. **Fixed: extension frames could share a process with web content.** Site isolation (on by default) already put
+   cross-origin `chrome-extension:` frames, such as Vimium's HUD and Vomnibar, in processes of their own, but what a
+   process may do for an extension was decided by what it reported hosting, and file reads trusted every page of a
+   background view, so a web iframe inside a background page or popup could read all of the extension's files. Now the
+   UI process records which extension's documents it gave each process (`WebContentClient::note_hosted_extension`),
+   and `CanonicalNavigable::process_to_host` keeps them apart as it does WebUIs: a process that hosted an extension's
+   documents hosts only that extension's documents and about:blank documents nothing else can reach, and the
+   extension's documents go to no other process. Full API access and file reads go by
+   `WebContentClient::may_speak_for_extension`. Remaining: with site isolation off (only possible when debugging
+   WebContent), extension frames stay in the page's process, which may then act as the extension.
 
 3. **Fixed: no permission enforcement.** API namespaces that need a permission (`storage`, `history`, `bookmarks`,
    `sessions`, `search`, `scripting`, `webNavigation`, ...) exist only with it, and the browser process refuses calls
@@ -233,8 +236,8 @@ items below are fixed.
 
 1. ~~Track, in the browser process, which WebContent page hosts which extension's contexts, and reject API calls that
    don't match (item 1).~~ Done. File reads already decide by what the page hosts.
-2. Run extension frames and background pages in their own WebContent processes (item 2). This also tightens items 5
-   and 6.
+2. ~~Run extension frames and background pages in their own WebContent processes (item 2).~~ Done. This also
+   tightens items 5 and 6.
 3. ~~Enforce `permissions` and `host_permissions` (item 3).~~ Done.
 4. Check `web_accessible_resources` `matches`, and limit the CSP bypass to web-accessible resources or loads started
    by the extension (items 4 and 5).
