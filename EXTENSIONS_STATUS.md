@@ -32,7 +32,8 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `927566db3de` | `sessions.restore()` reopens the most recently closed tab (Vimium `X`). |
 | `4205c821878` | `search.query`, with the search engine chosen in settings (searching from Vimium's `o`). |
 | `2363946e694`, `7f78b453e1c` | The `_favicon/` endpoint, scaled to the requested size (icons in Vimium's `T`). |
-| `f9a3a3748a7` | The browser process checks which extension a page may speak for, and limits content scripts to messaging and storage. |
+| `f9a3a3748a7`, `c795f44bd0a` | The browser process checks which extension a page may speak for, and limits content scripts to messaging and storage. |
+| `9764428c80b` | A page's CSP no longer applies Trusted Types or inline-style rules to content scripts' DOM changes (Vimium on strict sites such as ai.google). |
 
 ### Where the code lives
 
@@ -199,7 +200,9 @@ items below are fixed.
 ### Low or acceptable
 
 7. **Isolated worlds.** Content scripts get their own JS globals, so the page cannot directly reach `chrome.*` or
-   `nativeCall`. This matches Chrome's model. The `MAIN` world option of `scripting.executeScript` deliberately runs
+   `nativeCall`. While their script runs, the page's Trusted Types and inline-style rules don't apply to what they do
+   to the DOM (`Extensions::is_running_in_an_isolated_world`), as in Chromium; inline scripts they insert are still
+   subject to the page's policy. This matches Chrome's model. The `MAIN` world option of `scripting.executeScript` deliberately runs
    in the page's world, as in Chrome; such code must not be given privileged objects.
 
 8. **Script ctrl/cmd-click opening tabs.** Needs transient user activation, so a page cannot spam new

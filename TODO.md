@@ -19,6 +19,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] **`o` (Vomnibar):** remove the blue outline drawn around the Vomnibar frame, which Chrome doesn't draw.
 - [x] **Debugging:** `console.log` from content scripts doesn't reach the terminal; only thrown errors do.
 
+- [x] **Strict CSP sites (ai.google):** `f` threw on Trusted Types and Vimium's styles were blocked. Content scripts
+      are now exempt from the page's Trusted Types and inline-style rules, as in Chromium.
+
 ## Missing APIs Vimium uses
 
 - [x] `tabs.move`, for `<<`/`>>`. Moves within a window only; `tabs.onMoved` isn't fired yet.
