@@ -25,6 +25,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] `sessions.restore`, for `X` (reopen a closed tab). Only the most recent; no session IDs or `getRecentlyClosed` yet.
 - [x] `search.query`, for searching the web from `o`. Fails when no search engine is chosen (Ladybird's default).
 - [x] The `chrome-extension://<id>/_favicon/` endpoint, for favicons in the Vomnibar. No default icon for pages without one.
+- [ ] `tabs.update({pinned})`, for Vimium's pin toggle (needs a Hub→UI message, like `view_move_tab`).
+- [ ] `tabs.onMoved`, also for moves the user makes, and moving tabs between windows.
+- [ ] `sessions.getRecentlyClosed`, and `sessions.restore` by session ID.
 
 ## Next phase: UI
 
