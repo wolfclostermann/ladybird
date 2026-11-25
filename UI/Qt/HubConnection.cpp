@@ -908,6 +908,12 @@ void HubConnection::view_activate_tab(u64 view_id)
         view->on_activate_tab();
 }
 
+void HubConnection::view_move_tab(u64 view_id, Optional<u64> target_view_id)
+{
+    if (auto* view = RemoteView::find(view_id); view && view->on_move_tab)
+        view->on_move_tab(target_view_id);
+}
+
 void HubConnection::view_discard(u64 view_id)
 {
     if (auto* view = RemoteView::find(view_id); view && view->on_discard)

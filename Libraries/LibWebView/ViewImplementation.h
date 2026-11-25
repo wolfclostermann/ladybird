@@ -244,6 +244,7 @@ public:
     // Whether discarding the view would let a process exit, which is how its memory comes back.
     bool discarding_ends_a_process() const;
     void set_pinned(bool pinned);
+    bool is_pinned() const { return m_pinned; }
     void set_current_tab_of_window(bool current_tab_of_window);
     // When the user last stopped seeing the view, if they don't see it now.
     Optional<MonotonicTime> hidden_since() const { return m_hidden_since; }
@@ -682,6 +683,9 @@ public:
     Function<void(Compositing::CompositorLayersDescription const&)> on_compositor_layers_change;
     Function<String(Web::HTML::ActivateTab, Web::HTML::WebViewHints, CanonicalTraversable&)> on_new_web_view;
     Function<void()> on_activate_tab;
+    // Asks the UI to move the view's tab to where the tab of the view with the given ID is now, or to the end of its
+    // window without one.
+    Function<void(Optional<u64> target_view_id)> on_move_tab;
     Function<void()> on_close;
     Function<void(URL::URL const&)> on_link_hover;
     Function<void()> on_link_unhover;

@@ -320,6 +320,11 @@ void View::forward_callbacks_to_ui(bool is_tab)
         }
     };
 
+    on_move_tab = [this](Optional<u64> target_view_id) {
+        if (auto* ui = ConnectionFromUI::the())
+            ui->async_view_move_tab(view_id(), target_view_id);
+    };
+
     on_close = [this] {
         if (auto* ui = ConnectionFromUI::the()) {
             push_state_to_ui();

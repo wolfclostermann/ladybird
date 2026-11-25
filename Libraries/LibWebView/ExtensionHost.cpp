@@ -153,7 +153,7 @@ JsonObject tab_object_for(ViewImplementation& view, size_t index)
     tab.set("active"sv, active);
     tab.set("highlighted"sv, active);
     tab.set("selected"sv, active);
-    tab.set("pinned"sv, false);
+    tab.set("pinned"sv, view.is_pinned());
     tab.set("audible"sv, false);
     tab.set("discarded"sv, false);
     tab.set("autoDiscardable"sv, true);
@@ -800,6 +800,59 @@ void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& exten
         for (auto* view : views)
             view->request_close();
         return complete(undefined_result());
+    }
+
+    if (function == "move"sv) {
+        Vector<ViewImplementation*> moving_views;
+        auto ids = tab_id.is_array() ? tab_id.as_array().values() : Vector<JsonValue> { tab_id };
+        for (auto const& id : ids) {
+            auto id_value = id.get_integer<i64>();
+            auto view = id_value.has_value() ? tab_view_with_id(*id_value) : Optional<ViewImplementation&> {};
+            if (!view.has_value())
+                return complete(no_tab(id));
+            moving_views.append(&*view);
+        }
+
+        auto properties = argument(1).is_object() ? argument(1).as_object() : JsonObject {};
+        auto index = properties.get_integer<i64>("index"sv);
+        if (!index.has_value())
+            return complete(error("No index given to move tabs to"sv));
+
+        // The tabs go to consecutive positions from the index, in the order given, where -1 is the end. The UI moves
+        // them one after another, so each move names the tab whose place the tab takes once the earlier ones are done.
+        Vector<ViewImplementation*> order;
+        for (auto& view : tab_views())
+            order.append(&view);
+        Vector<size_t> new_indices;
+        for (size_t i = 0; i < moving_views.size(); ++i) {
+            auto* view = moving_views[i];
+            auto old_index = order.find_first_index(view);
+            VERIFY(old_index.has_value());
+
+            auto new_index = order.size() - 1;
+            if (*index >= 0)
+                new_index = min(static_cast<size_t>(*index) + i, order.size() - 1);
+
+            Optional<u64> target_view_id;
+            if (new_index < order.size() - 1)
+                target_view_id = order[new_index]->view_id();
+            if (new_index != *old_index && view->on_move_tab)
+                view->on_move_tab(target_view_id);
+
+            order.remove(*old_index);
+            order.insert(new_index, view);
+        }
+        // FIXME: Fire tabs.onMoved, also for the moves the user makes.
+
+        // The UI hasn't moved the tabs yet, so the tabs report the places they are about to have.
+        JsonArray tabs;
+        for (auto* view : moving_views) {
+            auto tab = tab_object_for(*view, order.find_first_index(view).value());
+            tabs.must_append(move(tab));
+        }
+        if (tab_id.is_array())
+            return complete(result(move(tabs)));
+        return complete(result(tabs.at(0)));
     }
 
     auto view = tab_view_for_argument(tab_id);

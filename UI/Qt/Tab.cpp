@@ -294,6 +294,24 @@ void Tab::initialize(Optional<u64> hub_view_id)
             m_window->activate_tab(index);
     };
 
+    view().on_move_tab = [this](Optional<u64> target_view_id) {
+        auto index = tab_index();
+        if (index < 0)
+            return;
+        // The tab takes the place of the target's tab in this window, or goes to the end of the window. Moving it to
+        // another window isn't supported yet.
+        auto new_index = m_window->tab_count() - 1;
+        if (target_view_id.has_value()) {
+            for (int i = 0; i < m_window->tab_count(); ++i) {
+                if (auto* tab = m_window->tab_at(i); tab && tab->is_loaded() && tab->view().view_id() == *target_view_id) {
+                    new_index = i;
+                    break;
+                }
+            }
+        }
+        m_window->move_tab(index, new_index);
+    };
+
     view().on_discard = [this] {
         m_window->discard_tab(*this);
     };
