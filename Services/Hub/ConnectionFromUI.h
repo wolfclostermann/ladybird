@@ -154,6 +154,7 @@ private:
     virtual void pause_active_downloads() override;
     virtual void cancel_unresumable_downloads() override;
     virtual void active_view_changed(Optional<u64> view_id) override;
+    virtual void tab_order_changed(Vector<u64> view_ids) override;
     virtual void answer_clipboard_text(u64 request_id, Utf16String text) override;
     virtual void answer_clipboard_item(u64 request_id, Web::Clipboard::SystemClipboardItem item) override;
     virtual void answer_download_path(u64 request_id, Optional<ByteString> path) override;

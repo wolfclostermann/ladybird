@@ -3474,6 +3474,7 @@ static void size_page_like(Tab& page, Tab const& current)
 void TabWidget::insert_tab(int index, Tab* widget, QString const& label)
 {
     update_all_tabs_entries_soon();
+    Application::the().report_tab_order_soon();
 
     if (widget->is_loaded()) {
         // A page inserted behind the current one stays at Qt's default geometry until it's selected, and a load can
@@ -3483,9 +3484,10 @@ void TabWidget::insert_tab(int index, Tab* widget, QString const& label)
             size_page_like(*widget, *current);
         widget->view().installEventFilter(this);
     } else {
-        // A tab that hasn't loaded gets the filter for its view once it has one.
+        // A tab that hasn't loaded gets the filter for its view once it has one, and a place in the tab order.
         auto did_load = [this, widget] {
             widget->view().installEventFilter(this);
+            Application::the().report_tab_order_soon();
         };
         connect(widget, &Tab::loaded, this, did_load, Qt::SingleShotConnection);
     }
@@ -3509,6 +3511,7 @@ Tab* TabWidget::replace_tab(int index, Tab* widget)
         return nullptr;
 
     update_all_tabs_entries_soon();
+    Application::the().report_tab_order_soon();
 
     m_stacked_widget->removeWidget(old_widget);
     if (old_widget->is_loaded())
@@ -3521,6 +3524,7 @@ Tab* TabWidget::replace_tab(int index, Tab* widget)
     } else {
         auto did_load = [this, widget] {
             widget->view().installEventFilter(this);
+            Application::the().report_tab_order_soon();
         };
         connect(widget, &Tab::loaded, this, did_load, Qt::SingleShotConnection);
     }
@@ -3546,6 +3550,7 @@ Tab* TabWidget::take_tab(int index)
         return nullptr;
 
     update_all_tabs_entries_soon();
+    Application::the().report_tab_order_soon();
 
     m_tab_bar->prepare_for_tab_removal(index);
     m_stacked_widget->removeWidget(widget);

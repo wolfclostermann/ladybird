@@ -327,6 +327,8 @@ public:
     Function<void()> on_compositor_process_death;
 
     virtual Optional<ViewImplementation&> active_web_view() const { return {}; }
+    // The IDs of the views that show tabs, in the order of the UI's tab strips. Empty when no UI reports one.
+    virtual ReadonlySpan<u64> tab_order() const { return {}; }
     virtual Optional<ViewImplementation&> activate_tab_with_url(URL::URL const&, URL::ExcludeFragment) const { return {}; }
 
     virtual Optional<ViewImplementation&> open_blank_new_tab(Web::HTML::ActivateTab, ViewImplementation const* = nullptr) const { return {}; }

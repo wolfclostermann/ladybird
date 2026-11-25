@@ -28,16 +28,28 @@ namespace WebView {
 // Like Chromium, every tab is in the one window until windows are known to the extension APIs.
 static constexpr i64 window_id = 1;
 
-// The views that show tabs, in the order the extension APIs index them. Views without a window, such as those of
-// background pages, are not tabs.
+static bool is_tab_view(ViewImplementation const&);
+
+// The views that show tabs, in the order the extension APIs index them: the order of the UI's tab strips. Views the UI
+// hasn't placed yet follow, oldest first. Views without a window, such as those of background pages, are not tabs.
 static Vector<ViewImplementation&> tab_views()
 {
     Vector<ViewImplementation&> views;
+    auto tab_order = Application::the().tab_order();
+    for (auto view_id : tab_order) {
+        if (auto view = ViewImplementation::find_view_by_id(view_id); view.has_value() && is_tab_view(*view))
+            views.append(*view);
+    }
+
+    Vector<ViewImplementation*> unplaced_views;
     ViewImplementation::for_each_view([&](ViewImplementation& view) {
-        if (!Application::the().is_extension_background_view(view) && !view.owner_view_id().has_value())
-            views.append(view);
+        if (is_tab_view(view) && !tab_order.contains_slow(view.view_id()))
+            unplaced_views.append(&view);
         return IterationDecision::Continue;
     });
+    quick_sort(unplaced_views, [](auto const* a, auto const* b) { return a->view_id() < b->view_id(); });
+    for (auto* view : unplaced_views)
+        views.append(*view);
     return views;
 }
 

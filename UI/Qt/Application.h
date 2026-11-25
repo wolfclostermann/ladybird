@@ -170,6 +170,8 @@ public:
 
     void update_feedback_buttons();
     void report_active_view() const;
+    // Tells the Hub the order of the tabs, once the current turn of the event loop has finished changing them.
+    void report_tab_order_soon();
 
     BrowserWindow& active_window() const { return *m_active_window; }
     void set_active_window(BrowserWindow& window) { m_active_window = &window; }
@@ -400,6 +402,7 @@ private:
     bool m_private_session_restart_in_progress { false };
     bool m_quit_in_progress { false };
     bool m_quit_is_finishing { false };
+    bool m_tab_order_report_is_pending { false };
     Vector<QPointer<BrowserWindow>> m_windows_awaiting_quit_preflight;
 
 #if defined(AK_OS_LINUX)

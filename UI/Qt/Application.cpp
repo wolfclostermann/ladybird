@@ -3064,6 +3064,32 @@ void Application::report_active_view() const
     hub->async_active_view_changed(tab && tab->is_loaded() ? Optional<u64> { tab->view().view_id() } : Optional<u64> {});
 }
 
+void Application::report_tab_order_soon()
+{
+    if (m_tab_order_report_is_pending)
+        return;
+    m_tab_order_report_is_pending = true;
+    Core::deferred_invoke([this] {
+        m_tab_order_report_is_pending = false;
+        auto* hub = HubConnection::the_if_connected();
+        if (!hub)
+            return;
+
+        // The extension APIs index tabs in this order. A tab that hasn't loaded has no view, and no place in it yet.
+        Vector<u64> view_ids;
+        for (auto* widget : QApplication::topLevelWidgets()) {
+            auto* window = as_if<BrowserWindow>(widget);
+            if (!window)
+                continue;
+            for (int i = 0; i < window->tab_count(); ++i) {
+                if (auto* tab = window->tab_at(i); tab && tab->is_loaded())
+                    view_ids.append(tab->view().view_id());
+            }
+        }
+        hub->async_tab_order_changed(move(view_ids));
+    });
+}
+
 void Application::did_enable_devtools(u16 port)
 {
     m_devtools_port = port;

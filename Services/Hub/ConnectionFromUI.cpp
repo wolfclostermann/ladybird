@@ -167,6 +167,11 @@ void ConnectionFromUI::active_view_changed(Optional<u64> view_id)
     Application::the().set_active_view(view_id);
 }
 
+void ConnectionFromUI::tab_order_changed(Vector<u64> view_ids)
+{
+    Application::the().set_tab_order(move(view_ids));
+}
+
 void ConnectionFromUI::answer_clipboard_text(u64 request_id, Utf16String text)
 {
     Application::the().did_read_clipboard_text(request_id, move(text));

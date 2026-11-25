@@ -58,6 +58,7 @@ public:
     void destroy_all_views() { m_views.clear(); }
 
     void set_active_view(Optional<u64> view_id);
+    void set_tab_order(Vector<u64> view_ids) { m_tab_order = move(view_ids); }
 
     // The UI has made its first windows and asked for what they start out showing.
     void ui_did_start();
@@ -82,6 +83,7 @@ private:
     virtual void create_platform_arguments(Core::ArgsParser&) override;
     virtual Optional<pid_t> ui_process_id() const override;
     virtual Optional<WebView::ViewImplementation&> active_web_view() const override;
+    virtual ReadonlySpan<u64> tab_order() const override { return m_tab_order; }
     virtual Optional<WebView::ViewImplementation&> open_blank_new_tab(Web::HTML::ActivateTab, WebView::ViewImplementation const* related_view = nullptr) const override;
     virtual void open_url_in_new_tab(URL::URL const&, Web::HTML::ActivateTab, WebView::ViewImplementation const* source_view = nullptr) const override;
     virtual void activate_or_open_tab_with_url(URL::URL const&) const override;
@@ -141,6 +143,7 @@ private:
     mutable Optional<Hub::UIInfo> m_ui_info;
     HashMap<u64, NonnullOwnPtr<View>> m_views;
     Optional<u64> m_active_view_id;
+    Vector<u64> m_tab_order;
     bool m_ui_did_start { false };
     Vector<String> m_webdriver_windows_awaiting_ui;
     // The system probe reports while the UI may still be opening its windows.
