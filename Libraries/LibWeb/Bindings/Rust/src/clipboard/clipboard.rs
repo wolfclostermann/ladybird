@@ -305,8 +305,17 @@ fn check_clipboard_write_permission(realm: Gc<Realm>) -> bool {
     //       the Permissions spec. So this partially implements the proposed update:
     //       https://pr-preview.s3.amazonaws.com/w3c/clipboard-apis/pull/164.html#write-permission
 
+    let window = relevant_window(realm);
+
+    // INTEROP: Chromium lets an extension's page write to the clipboard while it has focus, without a gesture. Vimium
+    //          copies from its HUD frame, which the user's key press in the page around it doesn't activate.
+    let document = window.associated_document();
+    if document.url().scheme() == "chrome-extension" && document.has_focus() {
+        return true;
+    }
+
     // 1. Let hasGesture be true if the relevant global object of this has transient activation, false otherwise.
-    let has_gesture = relevant_window(realm).has_transient_activation();
+    let has_gesture = window.has_transient_activation();
 
     // 2. If hasGesture then,
     if has_gesture {
