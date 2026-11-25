@@ -32,6 +32,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `927566db3de` | `sessions.restore()` reopens the most recently closed tab (Vimium `X`). |
 | `4205c821878` | `search.query`, with the search engine chosen in settings (searching from Vimium's `o`). |
 | `2363946e694`, `7f78b453e1c` | The `_favicon/` endpoint, scaled to the requested size (icons in Vimium's `T`). |
+| `f9a3a3748a7` | The browser process checks which extension a page may speak for, and limits content scripts to messaging and storage. |
 
 ### Where the code lives
 
@@ -155,13 +156,15 @@ items below are fixed.
 
 ### High
 
-1. **The browser process trusts the renderer about which extension is calling.**
-   `ExtensionHost::handle_api_call` (`Libraries/LibWebView/ExtensionHost.cpp:222`) takes the `extension_id` from the
-   IPC message and uses it as is. A WebContent process that has been exploited (the threat sandboxing exists for)
-   can call any API of any loaded extension: open and navigate tabs, run `scripting.executeScript` in any tab,
-   including the `MAIN` world, read history and bookmarks, and read and write that extension's storage. That turns a
-   single renderer bug into control of every tab. Chromium checks the caller against the process it knows hosts that
-   extension.
+1. **Fixed: the browser process trusted the renderer about which extension is calling.**
+   `ExtensionHost::handle_api_call` now works out who is calling from what the page hosts (`ExtensionHost::caller_for`),
+   not from the `extension_id` in the IPC message. A page hosting a document of the extension's own origin gets the
+   full API. A page whose documents the extension's content scripts match, or that the extension injected a script
+   into (`scripting.executeScript`, isolated world), counts as a content script: it may only message the extension and
+   use storage (session storage once `storage.session.setAccessLevel` allows it), and its frame ID and URL are taken
+   from the browser's own records. Any other page is refused. Answers to events are also accepted only from the page
+   the event went to. What remains is item 2: a web page that shares a process with an extension frame can still act
+   as that extension.
 
 2. **Extension frames can share a process with web content.**
    (`Libraries/LibWebView/Application.cpp:963`.) Vimium's HUD and Vomnibar are `chrome-extension:` iframes inside
@@ -216,8 +219,8 @@ items below are fixed.
 
 ### Suggested order of fixes
 
-1. Track, in the browser process, which WebContent page hosts which extension's contexts, and reject API calls and
-   file reads that don't match (item 1).
+1. ~~Track, in the browser process, which WebContent page hosts which extension's contexts, and reject API calls that
+   don't match (item 1).~~ Done. File reads already decide by what the page hosts.
 2. Run extension frames and background pages in their own WebContent processes (item 2). This also tightens items 5
    and 6.
 3. Enforce `permissions` and `host_permissions` for `scripting`, `tabs` (URL and title fields), `history` and
@@ -243,5 +246,5 @@ items below are fixed.
   ExtensionHost.cpp` (every API call, in the browser process), `Libraries/LibWebView/Extensions.cpp` (loading and
   file access). New Hub↔UI messages: `tab_order_changed` (UI→Hub), `view_move_tab` and
   `app_reopen_recently_closed_tab` (Hub→UI).
-- Suggested next steps, in order: the three high-severity security items in section 4; `about:extensions` and the
+- Suggested next steps, in order: the remaining high-severity security items in section 4 (2 and 3); `about:extensions` and the
   toolbar button (`chrome.action`); `runtime.connect`; `tabs.onMoved` and pinning; clang-format the new code.
