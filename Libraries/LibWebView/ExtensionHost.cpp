@@ -11,6 +11,7 @@
 #include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebView/Application.h>
 #include <LibWebCommon/Extensions/FrameId.h>
+#include <LibWebCommon/StorageAPI/StorageKey.h>
 #include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalNavigable.h>
 #include <LibWebView/CanonicalTraversable.h>
@@ -217,18 +218,97 @@ static ExtensionHost::CallResult error(StringView message)
     return { .is_error = true, .payload = MUST(String::from_utf8(message)) };
 }
 
+// Whether an active document of the page could have run one of the extension's content scripts: whether the URL it
+// was created with, or the URL its navigable shows now, is one the extension's content scripts match.
+// NB: The WebContent process matches about:blank, srcdoc, data: and blob: documents by the URL of their creator, which
+//     is in the same process, so those need no match of their own here.
+bool ExtensionHost::page_matches_content_scripts_of(WebContentPage const& page, LoadedExtension const& extension) const
+{
+    auto url_is_matched = [&](URL::URL const& url) {
+        for (auto const& content_script_value : extension.content_scripts.values()) {
+            if (!content_script_value.is_object())
+                continue;
+            auto const& content_script = content_script_value.as_object();
+            auto matches = [&](JsonValue const& pattern) { return pattern.is_string() && Web::Extensions::match_pattern_matches(pattern.as_string(), url); };
+            auto patterns = content_script.get_array("matches"sv);
+            auto excluded_patterns = content_script.get_array("exclude_matches"sv);
+            if (patterns.has_value() && any_of(patterns->values(), matches) && !(excluded_patterns.has_value() && any_of(excluded_patterns->values(), matches)))
+                return true;
+        }
+        return false;
+    };
+
+    bool matched = false;
+    page.for_each_navigable_with_a_hosted_active_document([&](CanonicalNavigable const& navigable) {
+        matched = url_is_matched(navigable.active_document().creation_url()) || url_is_matched(navigable.active_document_url());
+        return matched ? IterationDecision::Break : IterationDecision::Continue;
+    });
+    return matched;
+}
+
+// Like Chromium, the UI process decides what a page may do with an extension by what the page hosts, so that a
+// WebContent process which has been taken over cannot speak for an extension it doesn't host.
+// FIXME: An extension's frame shares a process with the web page around it, which can therefore act as the extension.
+//        Give extensions processes of their own.
+Optional<ExtensionHost::Caller> ExtensionHost::caller_for(WebContentPage const& page, LoadedExtension const& extension)
+{
+    if (!page.is_open() || !page.has_traversable())
+        return {};
+
+    auto extension_url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/", extension.id)));
+    if (extension_url.has_value() && page.hosts_an_environment_with_storage_key(Web::StorageAPI::obtain_a_storage_key_for_non_storage_purposes(extension_url->origin())))
+        return Caller::ExtensionPage;
+
+    if (page_matches_content_scripts_of(page, extension))
+        return Caller::ContentScript;
+
+    if (auto pages = m_pages_with_injected_scripts.get(extension.id); pages.has_value()) {
+        pages->remove_all_matching([](auto const& injected_page) { return !injected_page->is_open(); });
+        if (any_of(*pages, [&](auto const& injected_page) { return injected_page.ptr() == &page; }))
+            return Caller::ContentScript;
+    }
+    return {};
+}
+
+// https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts#capabilities
+// Content scripts may use storage, and runtime only to message the extension. Session storage is theirs only once the
+// extension allows it.
+bool ExtensionHost::content_script_may_call(LoadedExtension const& extension, StringView api) const
+{
+    if (api.is_one_of("runtime.sendMessage"sv, "runtime.connect"sv))
+        return true;
+    if (api.starts_with("storage."sv)) {
+        if (api.ends_with(".setAccessLevel"sv))
+            return false;
+        if (api.starts_with("storage.session."sv))
+            return m_session_storage_open_to_content_scripts.contains(extension.id);
+        return true;
+    }
+    return false;
+}
+
 void ExtensionHost::handle_api_call(WebContentPage& page, String const& extension_id, String const& context_json, String const& api, String const& arguments_json, u64 call_id)
 {
     auto complete = [page = NonnullRefPtr { page }, call_id](CallResult result) {
         page->async_complete_extension_api_call(call_id, result.is_error, result.payload);
     };
 
-    // FIXME: Check that the page hosts a context of the extension, rather than trusting the renderer that it does.
     auto const* extension = Application::the().extension_with_id(extension_id);
     if (!extension) {
         complete(error("No such extension"sv));
         return;
     }
+
+    auto caller = caller_for(page, *extension);
+    if (!caller.has_value()) {
+        dbgln("Extension API: refused {} for extension {} from a page that hosts none of its contexts", api, extension_id);
+        complete(error("This page has no context of the extension"sv));
+        return;
+    }
+
+    JsonArray arguments;
+    if (auto parsed = JsonParser::parse(arguments_json); !parsed.is_error() && parsed.value().is_array())
+        arguments = parsed.value().as_array();
 
     Context context;
     if (auto parsed = JsonParser::parse(context_json); !parsed.is_error() && parsed.value().is_object()) {
@@ -238,9 +318,39 @@ void ExtensionHost::handle_api_call(WebContentPage& page, String const& extensio
         context.url = object.get_string("url"sv).value_or({});
     }
 
-    JsonArray arguments;
-    if (auto parsed = JsonParser::parse(arguments_json); !parsed.is_error() && parsed.value().is_array())
-        arguments = parsed.value().as_array();
+    // The background page opens session storage to content scripts as it starts, which those in a tab that loaded first
+    // must wait for, as Chromium starts an extension's service worker before its tabs load.
+    if (*caller == Caller::ContentScript && api.starts_with_bytes("storage.session."sv) && !content_script_may_call(*extension, api)
+        && Application::the().extension_background_view(extension->id) && !m_loaded_background_pages.contains(extension->id)) {
+        m_waiting_for_background_page.ensure(extension->id).append([this, page = NonnullRefPtr { page }, extension_id, context_json, api, arguments_json, call_id] {
+            handle_api_call(*page, extension_id, context_json, api, arguments_json, call_id);
+        });
+        return;
+    }
+
+    if (*caller == Caller::ContentScript) {
+        if (!content_script_may_call(*extension, api)) {
+            dbgln("Extension API: refused {} for a content script of extension {}", api, extension_id);
+            complete(error(MUST(String::formatted("chrome.{} is not available to content scripts", api))));
+            return;
+        }
+
+        // A content script is what it is, in the frame it is in, whatever the page says. The frame must be one the page
+        // hosts, and its URL is the one the UI process knows.
+        context.type = "content_script"_string;
+        Optional<CanonicalNavigable const&> frame;
+        page.for_each_navigable_with_a_hosted_active_document([&](CanonicalNavigable const& navigable) {
+            if (frame_id_of(navigable) != context.frame_id)
+                return IterationDecision::Continue;
+            frame = navigable;
+            return IterationDecision::Break;
+        });
+        if (!frame.has_value()) {
+            complete(error("The frame of the content script is gone"sv));
+            return;
+        }
+        context.url = frame->active_document_url().serialize();
+    }
 
     call(page, *extension, context, api, arguments, move(complete));
 }
@@ -607,7 +717,21 @@ void ExtensionHost::storage_call(LoadedExtension const& extension, StringView ar
         return;
     }
 
+    // https://developer.chrome.com/docs/extensions/reference/api/storage#method-StorageArea-setAccessLevel
     if (function == "setAccessLevel"sv) {
+        if (area != "session"sv) {
+            complete(error("Only the session storage area has an access level"sv));
+            return;
+        }
+        auto access_level = argument.is_object() ? argument.as_object().get_string("accessLevel"sv) : Optional<String> {};
+        if (access_level == "TRUSTED_AND_UNTRUSTED_CONTEXTS"sv)
+            m_session_storage_open_to_content_scripts.set(extension.id);
+        else if (access_level == "TRUSTED_CONTEXTS"sv)
+            m_session_storage_open_to_content_scripts.remove(extension.id);
+        else {
+            complete(error("Unknown access level"sv));
+            return;
+        }
         complete(undefined_result());
         return;
     }
@@ -680,7 +804,7 @@ void ExtensionHost::storage_call(LoadedExtension const& extension, StringView ar
 void ExtensionHost::dispatch_event_to_page(WebContentPage& page, String const& extension_id, JsonObject const& target, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete)
 {
     auto dispatch_id = ++m_next_dispatch_id;
-    m_pending_dispatches.set(dispatch_id, move(on_complete));
+    m_pending_dispatches.set(dispatch_id, { .page = &page, .on_complete = move(on_complete) });
     page.async_dispatch_extension_event(extension_id, target.serialized(), MUST(String::from_utf8(event)), arguments.serialized(), dispatch_id);
 }
 
@@ -714,10 +838,14 @@ void ExtensionHost::dispatch_event(ViewImplementation& view, String const& exten
     }
 }
 
-void ExtensionHost::did_finish_event(u64 dispatch_id, Optional<String> response_json)
+void ExtensionHost::did_finish_event(WebContentPage const& page, u64 dispatch_id, Optional<String> response_json)
 {
-    if (auto on_complete = m_pending_dispatches.take(dispatch_id); on_complete.has_value())
-        (*on_complete)(move(response_json));
+    // Only the page that an event went to may answer it.
+    auto pending = m_pending_dispatches.get(dispatch_id);
+    if (!pending.has_value() || pending->page != &page)
+        return;
+    auto on_complete = move(m_pending_dispatches.take(dispatch_id)->on_complete);
+    on_complete(move(response_json));
 }
 
 void ExtensionHost::broadcast_event(String const& extension_id, StringView event, JsonArray const& arguments)
@@ -1080,9 +1208,18 @@ void ExtensionHost::inject(ViewImplementation& view, LoadedExtension const& exte
     state->on_complete = move(on_complete);
     state->remaining = pages.size();
 
+    // Scripts injected into the isolated world are content scripts, which may then call the extension's APIs.
+    if (details.get_string("kind"sv) == "script"sv && details.get_string("world"sv) != "MAIN"sv) {
+        auto& injected_pages = m_pages_with_injected_scripts.ensure(extension.id);
+        for (auto& page : pages) {
+            if (!any_of(injected_pages, [&](auto const& injected_page) { return injected_page.ptr() == page.ptr(); }))
+                injected_pages.append(page);
+        }
+    }
+
     for (auto& page : pages) {
         auto dispatch_id = ++m_next_dispatch_id;
-        m_pending_dispatches.set(dispatch_id, [state](Optional<String> results_json) {
+        m_pending_dispatches.set(dispatch_id, { .page = page.ptr(), .on_complete = [state](Optional<String> results_json) {
             if (results_json.has_value()) {
                 if (auto results = JsonParser::parse(*results_json); !results.is_error() && results.value().is_array()) {
                     results.value().as_array().for_each([&](auto const& result) { state->results.must_append(result); });
@@ -1096,7 +1233,7 @@ void ExtensionHost::inject(ViewImplementation& view, LoadedExtension const& exte
                 });
                 state->on_complete(move(state->results));
             }
-        });
+        } });
         page->async_inject_into_extension_frames(extension.id, target.serialized(), details.serialized(), dispatch_id);
     }
 }

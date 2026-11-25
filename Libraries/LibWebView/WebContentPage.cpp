@@ -1739,7 +1739,7 @@ void WebContentPage::did_call_extension_api(String extension_id, String context_
 
 void WebContentPage::did_finish_extension_event(u64 dispatch_id, bool has_response, String response_json)
 {
-    Application::the().extension_host().did_finish_event(dispatch_id, has_response ? Optional<String> { move(response_json) } : OptionalNone {});
+    Application::the().extension_host().did_finish_event(*this, dispatch_id, has_response ? Optional<String> { move(response_json) } : OptionalNone {});
 }
 
 // NB: For a file input, Element Send Keys selects the files listed in its text. The page running the command may read

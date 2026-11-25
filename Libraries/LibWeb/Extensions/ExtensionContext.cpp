@@ -114,8 +114,11 @@ static constexpr StringView runtime_source = R"~~~(
     const storageArea = (area) => namespace(`storage.${area}`,
         ["get", "set", "remove", "clear", "getBytesInUse", "setAccessLevel", "getKeys"], ["onChanged"]);
 
+    // Content scripts may use runtime only to message the extension, as in Chromium.
     runtime = namespace("runtime",
-        ["getPlatformInfo", "openOptionsPage", "reload", "setUninstallURL", "getContexts"],
+        contextType === "extension_page"
+            ? ["getPlatformInfo", "openOptionsPage", "reload", "setUninstallURL", "getContexts"]
+            : [],
         ["onMessage", "onConnect", "onInstalled", "onStartup", "onSuspend", "onUpdateAvailable", "onMessageExternal"],
         {
             id: extensionId,
