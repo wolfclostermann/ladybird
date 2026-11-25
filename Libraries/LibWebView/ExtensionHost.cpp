@@ -368,6 +368,16 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
     if (api.starts_with("bookmarks."sv))
         return bookmarks_call(api.substring_view(10), arguments, move(complete));
 
+    // https://developer.chrome.com/docs/extensions/reference/api/sessions#method-restore
+    if (api == "sessions.restore"sv) {
+        // FIXME: Restore a session by its ID, once sessions.getRecentlyClosed gives out IDs, and resolve with the
+        //        session that was restored.
+        if (!arguments.is_empty() && !arguments.at(0).is_null())
+            return complete(error("Restoring a session by its ID is not supported yet"sv));
+        Application::the().reopen_recently_closed_tab();
+        return complete(undefined_result());
+    }
+
     if (api == "windows.update"sv)
         return complete(result(window_object(false)));
 

@@ -87,6 +87,7 @@ private:
     virtual Optional<WebView::ViewImplementation&> open_blank_new_tab(Web::HTML::ActivateTab, WebView::ViewImplementation const* related_view = nullptr) const override;
     virtual void open_url_in_new_tab(URL::URL const&, Web::HTML::ActivateTab, WebView::ViewImplementation const* source_view = nullptr) const override;
     virtual void activate_or_open_tab_with_url(URL::URL const&) const override;
+    virtual void reopen_recently_closed_tab() const override;
     virtual void open_urls_in_new_tabs(ReadonlySpan<URL::URL>) const override;
     virtual void open_url_in_new_window(URL::URL const&, WebView::IsPrivate) override;
     virtual void open_navigation_in_new_tab(Web::HTML::PreparedNavigationDescriptor, Web::HTML::ActivateTab, WebView::ViewImplementation const* source_view = nullptr) const override;

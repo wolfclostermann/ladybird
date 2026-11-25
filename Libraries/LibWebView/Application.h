@@ -334,6 +334,8 @@ public:
     virtual Optional<ViewImplementation&> open_blank_new_tab(Web::HTML::ActivateTab, ViewImplementation const* = nullptr) const { return {}; }
     virtual void open_url_in_new_tab(URL::URL const&, Web::HTML::ActivateTab, ViewImplementation const* source_view = nullptr) const;
     virtual void activate_or_open_tab_with_url(URL::URL const&) const;
+    // Reopens the tab or window that was closed most recently, as the UI's Reopen Closed Tab does.
+    virtual void reopen_recently_closed_tab() const { }
     virtual void open_urls_in_new_tabs(ReadonlySpan<URL::URL>) const;
     virtual void open_url_in_new_window(URL::URL const&, IsPrivate) { }
     virtual void open_navigation_in_new_tab(Web::HTML::PreparedNavigationDescriptor, Web::HTML::ActivateTab, ViewImplementation const* source_view = nullptr) const;

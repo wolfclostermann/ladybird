@@ -176,6 +176,12 @@ void Application::activate_or_open_tab_with_url(URL::URL const& url) const
         WebView::Application::activate_or_open_tab_with_url(url);
 }
 
+void Application::reopen_recently_closed_tab() const
+{
+    if (auto* ui = ConnectionFromUI::the())
+        ui->async_app_reopen_recently_closed_tab();
+}
+
 void Application::open_urls_in_new_tabs(ReadonlySpan<URL::URL> urls) const
 {
     auto* ui = ConnectionFromUI::the();

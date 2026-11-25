@@ -338,6 +338,11 @@ void HubConnection::app_activate_or_open_tab_with_url(URL::URL url)
     Application::the().activate_or_open_tab_with_url(url);
 }
 
+void HubConnection::app_reopen_recently_closed_tab()
+{
+    Application::the().reopen_recently_closed_tab(Application::the().active_window_if_any());
+}
+
 void HubConnection::app_open_view_in_new_tab(u64 view_id, Optional<u64> source_view_id, WebView::IsPrivate is_private, Web::HTML::ActivateTab activate_tab)
 {
     Application::the().open_view_in_new_tab(view_id, source_view_id, is_private, activate_tab);
