@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="color-scheme" content="light dark" />
+        <title>Extensions</title>
+        <link rel="icon" type="image/png" href="resource://icons/48x48/app-browser.png" />
+        <link rel="stylesheet" type="text/css" href="resource://ladybird/ladybird.css" />
+        <link rel="stylesheet" type="text/css" href="resource://ladybird/about-pages/webui.css" />
+        <style>
+            body {
+                max-width: 860px;
+                padding: 48px 24px;
+            }
+
+            .extension {
+                display: grid;
+                grid-template-columns: 48px minmax(0, 1fr) auto;
+                gap: 4px 16px;
+                align-items: start;
+
+                padding: 16px 20px;
+            }
+
+            .extension + .extension,
+            .load-error + .load-error {
+                border-top: 1px solid var(--border-color);
+            }
+
+            .extension-icon {
+                grid-row: span 3;
+                width: 48px;
+                height: 48px;
+                object-fit: contain;
+            }
+
+            /* An extension without an icon gets the first letter of its name. */
+            .extension-icon.placeholder {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                border-radius: 10px;
+                background-color: var(--control);
+                color: var(--secondary-text-color);
+                font-size: 22px;
+                font-weight: 600;
+            }
+
+            .extension-name {
+                font-size: 15px;
+                font-weight: 600;
+                overflow-wrap: anywhere;
+            }
+
+            .extension-version {
+                margin-left: 6px;
+                color: var(--secondary-text-color);
+                font-weight: 400;
+            }
+
+            .extension-actions {
+                grid-row: span 3;
+                display: flex;
+                gap: 8px;
+            }
+
+            .extension-description {
+                overflow-wrap: anywhere;
+            }
+
+            .extension-description:empty {
+                display: none;
+            }
+
+            details {
+                grid-column: 2 / span 2;
+                margin-top: 4px;
+            }
+
+            summary {
+                width: fit-content;
+                margin-left: -6px;
+                padding: 2px 6px;
+                border-radius: 5px;
+
+                color: var(--secondary-text-color);
+                cursor: pointer;
+            }
+
+            summary:hover {
+                background-color: var(--control);
+            }
+
+            dl {
+                display: grid;
+                grid-template-columns: minmax(120px, 24%) 1fr;
+                gap: 6px 16px;
+
+                margin: 8px 0 0 0;
+            }
+
+            dt {
+                color: var(--secondary-text-color);
+            }
+
+            dd {
+                margin: 0;
+                overflow-wrap: anywhere;
+            }
+
+            .monospace {
+                font-family: monospace;
+            }
+
+            .load-error {
+                padding: 16px 20px;
+            }
+
+            .load-error-title {
+                color: var(--error);
+                font-weight: 600;
+            }
+
+            .load-error-title::before {
+                content: "⚠ ";
+            }
+
+            .load-error-directory {
+                margin-top: 4px;
+                overflow-wrap: anywhere;
+                font-family: monospace;
+            }
+
+            .load-error-message {
+                margin-top: 4px;
+                color: var(--secondary-text-color);
+            }
+
+            #empty {
+                padding: 20px;
+                color: var(--secondary-text-color);
+            }
+
+            @media (max-width: 640px) {
+                body {
+                    padding: 24px 16px;
+                }
+
+                .extension {
+                    grid-template-columns: 48px minmax(0, 1fr);
+                }
+
+                .extension-actions {
+                    grid-row: auto;
+                    grid-column: 2;
+                }
+
+                details {
+                    grid-column: 1 / span 2;
+                }
+
+                dl {
+                    grid-template-columns: 1fr;
+                    gap: 2px;
+                }
+
+                dd + dt {
+                    margin-top: 6px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Extensions</h1>
+        </header>
+
+        <div id="errors-card" class="card hidden"></div>
+
+        <div class="card">
+            <div id="extensions"></div>
+            <div id="empty" class="hidden">
+                No extensions are loaded. Start Ladybird with
+                <span class="monospace">--load-extension=&lt;folder&gt;</span> to load an unpacked extension.
+            </div>
+        </div>
+
+        <script>
+            const extensionsElement = document.querySelector("#extensions");
+            const emptyElement = document.querySelector("#empty");
+            const errorsCard = document.querySelector("#errors-card");
+
+            function element(tag, className, text) {
+                const result = document.createElement(tag);
+                if (className) result.className = className;
+                if (text !== undefined) result.textContent = text;
+                return result;
+            }
+
+            function renderIcon(extension) {
+                if (extension.icon) {
+                    const icon = element("img", "extension-icon");
+                    icon.src = extension.icon;
+                    icon.alt = "";
+                    return icon;
+                }
+                const placeholder = element("div", "extension-icon placeholder");
+                placeholder.textContent = [...extension.name][0]?.toUpperCase() ?? "?";
+                placeholder.setAttribute("aria-hidden", "true");
+                return placeholder;
+            }
+
+            function renderDetails(extension) {
+                const details = element("details");
+                details.append(element("summary", null, "Details"));
+
+                const list = element("dl");
+                function add(term, description, className) {
+                    if (description === undefined || description === null || description === "") return;
+                    list.append(element("dt", null, term), element("dd", className, description));
+                }
+
+                add("ID", extension.id, "monospace");
+                add("Folder", extension.directory, "monospace");
+                add("Manifest version", String(extension.manifestVersion));
+                if (extension.background)
+                    add("Background", `${extension.background}, ${extension.backgroundRunning ? "running" : "not running"}`);
+                add("Permissions", extension.permissions.join(", "), "monospace");
+                add("Site access", extension.hostPermissions.join(", "), "monospace");
+                add("Runs on", extension.contentScriptMatches.join(", "), "monospace");
+
+                details.append(list);
+                return details;
+            }
+
+            function renderExtension(extension) {
+                const row = element("div", "extension");
+                row.dataset.id = extension.id;
+
+                const name = element("div", "extension-name", extension.name);
+                if (extension.version) name.append(element("span", "extension-version", extension.version));
+
+                const actions = element("div", "extension-actions");
+                if (extension.hasOptionsPage) {
+                    const options = element("button", "secondary-button", "Options");
+                    options.addEventListener("click", () => ladybird.sendMessage("openOptionsPage", extension.id));
+                    actions.append(options);
+                }
+
+                row.append(
+                    renderIcon(extension),
+                    name,
+                    actions,
+                    element("div", "extension-description", extension.description),
+                    renderDetails(extension)
+                );
+                return row;
+            }
+
+            function renderError(error) {
+                const row = element("div", "load-error");
+                row.append(
+                    element("div", "load-error-title", "Could not load"),
+                    element("div", "load-error-directory", error.directory),
+                    element("div", "load-error-message", error.error)
+                );
+                return row;
+            }
+
+            document.addEventListener("WebUIMessage", event => {
+                if (event.detail.name !== "loadExtensions") return;
+
+                const { extensions, errors } = event.detail.data;
+                const sorted = extensions.toSorted((a, b) => a.name.localeCompare(b.name));
+
+                extensionsElement.replaceChildren(...sorted.map(renderExtension));
+                emptyElement.classList.toggle("hidden", extensions.length > 0);
+
+                errorsCard.replaceChildren(...errors.map(renderError));
+                errorsCard.classList.toggle("hidden", errors.length === 0);
+            });
+
+            document.addEventListener("WebUILoaded", () => ladybird.sendMessage("loadExtensions"));
+        </script>
+    </body>
+</html>

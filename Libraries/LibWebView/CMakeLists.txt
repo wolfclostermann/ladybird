@@ -103,6 +103,7 @@ set(SOURCES
     WebUI/ApplicationWebUI.cpp
     WebUI/CertificateUI.cpp
     WebUI/CrashReportsUI.cpp
+    WebUI/ExtensionsUI.cpp
     WebUI/SupportUI.cpp
     WebUI/SettingsUI.cpp
     WebWorkerClient.cpp

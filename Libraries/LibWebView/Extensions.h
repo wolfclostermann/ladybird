@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/ByteBuffer.h>
 #include <AK/ByteString.h>
 #include <AK/Error.h>
 #include <AK/JsonObject.h>
@@ -33,10 +34,26 @@ struct LoadedExtension {
     JsonArray content_scripts;
 };
 
+// An extension that could not be loaded, and why.
+struct ExtensionLoadError {
+    ByteString directory;
+    String error;
+};
+
 WEBVIEW_API ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory);
 
 // Reads a text file of an extension, at a path relative to its directory, which the path may not leave.
 WEBVIEW_API ErrorOr<String> read_extension_text_file(LoadedExtension const&, StringView relative_path);
+
+// Reads any file of an extension, at a path relative to its directory, which the path may not leave.
+WEBVIEW_API ErrorOr<ByteBuffer> read_extension_file(LoadedExtension const&, StringView relative_path);
+
+// The path of the icon that best shows an extension at a size, in pixels: one of its own, or else its toolbar
+// button's.
+WEBVIEW_API Optional<String> icon_path(LoadedExtension const&, int size);
+
+// The path of an extension's options page, if it has one.
+WEBVIEW_API Optional<String> options_page_path(LoadedExtension const&);
 
 // The page that hosts an extension's background scripts, if it has any. For background scripts or a service worker,
 // it is generated, at this path.

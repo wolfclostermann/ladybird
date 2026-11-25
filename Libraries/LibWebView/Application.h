@@ -99,6 +99,7 @@ public:
     static Application& the() { return *s_the; }
 
     Vector<LoadedExtension> const& extensions() const { return m_extensions; }
+    Vector<ExtensionLoadError> const& extension_load_errors() const { return m_extension_load_errors; }
     LoadedExtension const* extension_with_id(StringView id) const;
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
     ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&);
@@ -682,6 +683,7 @@ private:
     Vector<ByteString> m_explicit_content_blocker_list_paths;
     Vector<ByteString> m_extension_paths;
     Vector<LoadedExtension> m_extensions;
+    Vector<ExtensionLoadError> m_extension_load_errors;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

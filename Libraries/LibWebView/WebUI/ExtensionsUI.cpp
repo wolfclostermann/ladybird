@@ -1,0 +1,163 @@
+/*
+ * Copyright (c) 2026-present, the Ladybird developers.
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ */
+
+#include <AK/Base64.h>
+#include <AK/JsonArray.h>
+#include <AK/JsonObject.h>
+#include <LibURL/Parser.h>
+#include <LibWebView/Application.h>
+#include <LibWebView/Extensions.h>
+#include <LibWebView/WebContentClient.h>
+#include <LibWebView/WebContentPage.h>
+#include <LibWebView/WebUI/ExtensionsUI.h>
+
+namespace WebView {
+
+// The size at which the page shows icons, in CSS pixels, doubled for high-density displays.
+static constexpr int icon_size = 48 * 2;
+
+void ExtensionsUI::register_interfaces()
+{
+    register_interface("loadExtensions"sv, [this](auto const&) {
+        load_extensions();
+    });
+    register_interface("openOptionsPage"sv, [this](auto const& data) {
+        open_options_page(data);
+    });
+}
+
+static JsonArray strings_of(JsonObject const& object, StringView key)
+{
+    JsonArray strings;
+    if (auto array = object.get_array(key); array.has_value()) {
+        for (auto const& value : array->values()) {
+            if (value.is_string())
+                strings.must_append(value.as_string());
+        }
+    }
+    return strings;
+}
+
+static bool is_match_pattern(StringView string)
+{
+    return string == "<all_urls>"sv || string.contains("://"sv);
+}
+
+static Optional<String> icon_data_url(LoadedExtension const& extension)
+{
+    auto path = icon_path(extension, icon_size);
+    if (!path.has_value())
+        return {};
+
+    auto contents = read_extension_file(extension, *path);
+    if (contents.is_error())
+        return {};
+
+    // Icons are PNG files, as the manifest's documentation asks of them, though some extensions use SVG.
+    auto type = path->bytes_as_string_view().ends_with(".svg"sv, CaseSensitivity::CaseInsensitive) ? "image/svg+xml"sv : "image/png"sv;
+    auto encoded = encode_base64(contents.value());
+    if (encoded.is_error())
+        return {};
+    return MUST(String::formatted("data:{};base64,{}", type, encoded.value()));
+}
+
+static JsonObject serialize_extension(LoadedExtension const& extension)
+{
+    auto const& manifest = extension.manifest;
+
+    JsonObject serialized;
+    serialized.set("id"sv, extension.id);
+    serialized.set("name"sv, extension.name);
+    serialized.set("version"sv, extension.version);
+    serialized.set("description"sv, manifest.get_string("description"sv).value_or({}));
+    serialized.set("directory"sv, String::from_utf8_with_replacement_character(extension.directory));
+    serialized.set("manifestVersion"sv, manifest.get_integer<i64>("manifest_version"sv).value_or(0));
+    if (auto icon = icon_data_url(extension); icon.has_value())
+        serialized.set("icon"sv, icon.release_value());
+
+    // Manifest V2 lists the hosts it may access among its permissions; Manifest V3 has a key of their own for them.
+    JsonArray permissions;
+    JsonArray host_permissions = strings_of(manifest, "host_permissions"sv);
+    strings_of(manifest, "permissions"sv).for_each([&](JsonValue const& permission) {
+        if (is_match_pattern(permission.as_string()))
+            host_permissions.must_append(permission);
+        else
+            permissions.must_append(permission);
+    });
+    serialized.set("permissions"sv, move(permissions));
+    serialized.set("hostPermissions"sv, move(host_permissions));
+
+    Vector<String> content_script_matches;
+    extension.content_scripts.for_each([&](JsonValue const& content_script) {
+        if (!content_script.is_object())
+            return;
+        strings_of(content_script.as_object(), "matches"sv).for_each([&](JsonValue const& match) {
+            if (!content_script_matches.contains_slow(match.as_string()))
+                content_script_matches.append(match.as_string());
+        });
+    });
+    JsonArray serialized_content_script_matches;
+    for (auto const& match : content_script_matches)
+        serialized_content_script_matches.must_append(match);
+    serialized.set("contentScriptMatches"sv, move(serialized_content_script_matches));
+
+    if (background_page_path(extension).has_value()) {
+        auto background = manifest.get_object("background"sv);
+        bool is_service_worker = background.has_value() && background->has_string("service_worker"sv);
+        serialized.set("background"sv, is_service_worker ? "Service worker"sv : "Background page"sv);
+        serialized.set("backgroundRunning"sv, Application::the().extension_background_view(extension.id) != nullptr);
+    }
+
+    serialized.set("hasOptionsPage"sv, options_page_path(extension).has_value());
+    return serialized;
+}
+
+void ExtensionsUI::load_extensions()
+{
+    auto const& application = Application::the();
+
+    JsonArray extensions;
+    for (auto const& extension : application.extensions())
+        extensions.must_append(serialize_extension(extension));
+
+    JsonArray errors;
+    for (auto const& [directory, error] : application.extension_load_errors()) {
+        JsonObject serialized;
+        serialized.set("directory"sv, String::from_utf8_with_replacement_character(directory));
+        serialized.set("error"sv, error);
+        errors.must_append(move(serialized));
+    }
+
+    JsonObject message;
+    message.set("extensions"sv, move(extensions));
+    message.set("errors"sv, move(errors));
+    async_send_message("loadExtensions"sv, move(message));
+}
+
+void ExtensionsUI::open_options_page(JsonValue const& data)
+{
+    if (!data.is_string() || !has_client())
+        return;
+
+    // Only a click on the page opens a tab.
+    auto* page = client().page(page_id());
+    if (!page || !page->consume_transient_user_activation())
+        return;
+
+    auto const* extension = Application::the().extension_with_id(data.as_string());
+    if (!extension)
+        return;
+    auto path = options_page_path(*extension);
+    if (!path.has_value())
+        return;
+
+    auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension->id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+    if (!url.has_value())
+        return;
+    Application::the().open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes);
+}
+
+}

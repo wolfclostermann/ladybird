@@ -72,7 +72,7 @@ static String extension_id_for_directory(StringView directory)
     return MUST(builder.to_string());
 }
 
-static ErrorOr<String> read_text_file(StringView directory, StringView relative_path)
+static ErrorOr<ByteBuffer> read_file(StringView directory, StringView relative_path)
 {
     // A path in a manifest is relative to the extension's directory, which it may not leave.
     auto path = LexicalPath::canonicalized_path(LexicalPath::join(directory, relative_path).string());
@@ -80,7 +80,12 @@ static ErrorOr<String> read_text_file(StringView directory, StringView relative_
         return Error::from_string_literal("Path leaves the extension's directory");
 
     auto file = TRY(Core::File::open(path, Core::File::OpenMode::Read));
-    auto contents = TRY(file->read_until_eof());
+    return file->read_until_eof();
+}
+
+static ErrorOr<String> read_text_file(StringView directory, StringView relative_path)
+{
+    auto contents = TRY(read_file(directory, relative_path));
     return String::from_utf8(contents);
 }
 
@@ -164,6 +169,60 @@ ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
 ErrorOr<String> read_extension_text_file(LoadedExtension const& extension, StringView relative_path)
 {
     return read_text_file(extension.directory, relative_path.trim("/"sv, TrimMode::Left));
+}
+
+ErrorOr<ByteBuffer> read_extension_file(LoadedExtension const& extension, StringView relative_path)
+{
+    return read_file(extension.directory, relative_path.trim("/"sv, TrimMode::Left));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/manifest/icons
+Optional<String> icon_path(LoadedExtension const& extension, int size)
+{
+    auto best_of = [&](JsonObject const& icons) -> Optional<String> {
+        // The smallest icon at least as large as asked for, or else the largest there is.
+        Optional<String> best_path;
+        int best_size = 0;
+        icons.for_each_member([&](String const& key, JsonValue const& value) {
+            auto icon_size = key.to_number<int>();
+            if (!icon_size.has_value() || *icon_size <= 0 || !value.is_string())
+                return;
+            bool is_better = !best_path.has_value()
+                || (best_size < size && *icon_size > best_size)
+                || (*icon_size >= size && *icon_size < best_size);
+            if (is_better) {
+                best_path = value.as_string();
+                best_size = *icon_size;
+            }
+        });
+        return best_path;
+    };
+
+    if (auto icons = extension.manifest.get_object("icons"sv); icons.has_value()) {
+        if (auto path = best_of(*icons); path.has_value())
+            return path;
+    }
+    // Without icons of its own, an extension is shown with its toolbar button's.
+    for (auto key : { "action"sv, "browser_action"sv }) {
+        auto action = extension.manifest.get_object(key);
+        if (!action.has_value())
+            continue;
+        if (auto icon = action->get_string("default_icon"sv); icon.has_value())
+            return icon.copy();
+        if (auto icons = action->get_object("default_icon"sv); icons.has_value())
+            return best_of(*icons);
+    }
+    return {};
+}
+
+// https://developer.chrome.com/docs/extensions/develop/ui/options-page
+Optional<String> options_page_path(LoadedExtension const& extension)
+{
+    if (auto options_ui = extension.manifest.get_object("options_ui"sv); options_ui.has_value()) {
+        if (auto page = options_ui->get_string("page"sv); page.has_value())
+            return page.copy();
+    }
+    return extension.manifest.get_string("options_page"sv).copy();
 }
 
 Optional<String> background_page_path(LoadedExtension const& extension)

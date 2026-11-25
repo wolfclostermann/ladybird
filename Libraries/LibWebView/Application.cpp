@@ -907,10 +907,12 @@ Optional<UnixDateTime> Application::content_blocker_list_last_updated_at(StringV
 void Application::load_extensions()
 {
     m_extensions.clear();
+    m_extension_load_errors.clear();
     for (auto const& path : m_extension_paths) {
         auto extension = load_unpacked_extension(path);
         if (extension.is_error()) {
             warnln("Unable to load extension from {}: {}", path, extension.error());
+            m_extension_load_errors.append({ path, MUST(String::formatted("{}", extension.error())) });
             continue;
         }
         dbgln("Loaded extension {} {} ({}) from {}", extension.value().name, extension.value().version, extension.value().id, extension.value().directory);
