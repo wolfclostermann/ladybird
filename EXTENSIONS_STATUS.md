@@ -42,6 +42,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `3ed85fc4beb` | `about:extensions` reloads an extension from its folder, and tries again to load a folder that failed. |
 | `a49aaa5cd4d` | `WebDriver --load-extension=<dir>` passes the option on to the browser, for scripted tests. |
 | `77cd95fe528` | `about:extensions` has a Load Unpacked… button that installs an extension folder for good (listed under `unpacked` in `extensions.json`), so it loads without `--load-extension`. |
+| `7be35cc1f1d` | `about:extensions` has an Install from File… button for `.crx` (CRX3, signatures checked) and `.zip` files, unpacked into `<profile data>/Extensions/Packed/<id>/`. A manifest `key` now gives the key's ID, so a `.crx` keeps Chromium's ID. |
 
 ### Where the code lives
 
@@ -52,6 +53,8 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 - `Libraries/LibWeb/Extensions/ExtensionContext.{h,cpp}`: the `chrome.*` JavaScript surface given to each context and
   the `nativeCall` bridge that sends API calls to the browser process over IPC.
 - `Libraries/LibWebView/Extensions.{h,cpp}`: loading, IDs, and access to extension files.
+- `Libraries/LibWebView/ExtensionPackage.{h,cpp}`: reads `.crx` files and zip archives and unpacks them. Uses
+  `LibCompress/Deflate.{h,cpp}` (raw deflate, CRC-32) and `LibCrypto/PK/PublicKey.{h,cpp}` (signature checks).
 - `Libraries/LibWebView/ExtensionHost.{h,cpp}` (about 1,400 lines): carries out every API call in the browser
   process and dispatches events.
 - `Libraries/LibWebCommon/Extensions/MatchPattern.{h,cpp}` and `FrameId.h`, plus `Tests/LibWeb/TestExtensionMatchPatterns.cpp`.
@@ -119,8 +122,10 @@ All fixed. `TODO.md` is the live checklist.
 - Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
   crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
   shown in the sidebar layouts' collapsed rail.
-- Installing packed extensions (`.crx` / `.zip`) from the browser, which needs a zip reader (LibCompress has only
-  deflate). Unpacked folders install with Load Unpacked….
+- Packed extensions install with Install from File…, but only CRX3 files (CRX2 is refused, as in current Chromium)
+  and zip archives without ZIP64, encryption or compression other than deflate. Packed extensions are never updated;
+  installing a newer file replaces the old one. There is no store, so Chromium's requirement of a Web Store
+  signature does not apply: any validly self-signed `.crx` installs.
 - Only one window exists as far as extensions are concerned (window id 1).
 
 ### Housekeeping
@@ -244,9 +249,10 @@ extension's privileges. The three high-severity items below are fixed, and the f
     Chrome's unencrypted extension storage. The Hub opens its own connection to the history database, which adds
     another process that reads browsing history.
 
-11. **Loading is command-line only and unpacked.** There is no signature checking, store or update channel. That
-    is fine for a developer build, but a user can be talked into running a malicious unpacked extension by changing
-    how the browser is launched.
+11. **No store or update channel.** Extensions load from the command line, from a folder (Load Unpacked…) or from
+    a file (Install from File…). A `.crx` file's signature is checked, which proves only that it was not changed
+    after whoever holds its key signed it, and that its ID is theirs; it says nothing about whether to trust them.
+    A user can be talked into installing a malicious extension, as in Chromium's developer mode.
 
 ### Suggested order of fixes
 

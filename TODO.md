@@ -38,7 +38,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] The toolbar button for extensions (`chrome.action`), with badges, per-tab state, `onClicked` and popups.
 - [x] Enable, disable, reload and remove extensions from `about:extensions`.
 - [x] Install an unpacked folder from the browser (Load Unpacked… on `about:extensions`).
-- [ ] Install packed `.crx` / `.zip` files from the browser.
+- [x] Install packed `.crx` / `.zip` files from the browser (Install from File… on `about:extensions`). CRX3 only;
+      signatures are checked, but there is no store or update channel.
 - [ ] An overflow menu or pinning for toolbar buttons; a context menu on them; `action.openPopup`.
 
 ## Housekeeping
