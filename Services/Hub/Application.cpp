@@ -262,6 +262,30 @@ void Application::did_get_download_path(u64 request_id, Optional<ByteString> pat
         (*promise)->reject(Error::from_errno(ECANCELED));
 }
 
+NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_extension_folder() const
+{
+    auto* ui = ConnectionFromUI::the();
+    if (!ui)
+        return WebView::Application::ask_user_for_extension_folder();
+
+    auto promise = Core::Promise<ByteString>::construct();
+    auto request_id = m_next_ui_request_id++;
+    m_pending_extension_folders.set(request_id, promise);
+    ui->async_app_ask_user_for_extension_folder(request_id);
+    return promise;
+}
+
+void Application::did_get_extension_folder(u64 request_id, Optional<ByteString> path)
+{
+    auto promise = m_pending_extension_folders.take(request_id);
+    if (!promise.has_value())
+        return;
+    if (path.has_value())
+        (*promise)->resolve(path.release_value());
+    else
+        (*promise)->reject(Error::from_errno(ECANCELED));
+}
+
 void Application::display_download_confirmation_dialog(StringView download_name, LexicalPath const& path) const
 {
     if (auto* ui = ConnectionFromUI::the())

@@ -113,6 +113,15 @@ public:
     ErrorOr<void> reload_extension(StringView id);
     // Tries again to load an extension that could not be loaded from a folder.
     ErrorOr<void> retry_extension_load(StringView directory);
+    // Installs the unpacked extension in a folder, which is loaded from then on, as Chromium's Load Unpacked does.
+    // Loading a folder that is already installed loads it afresh.
+    ErrorOr<void> install_unpacked_extension(StringView directory);
+    // Stops loading an extension from a folder that could not be loaded.
+    void forget_extension_folder(StringView directory);
+    // Asks the user for the folder of an unpacked extension to install. Rejected if they cancel, or without a UI.
+    virtual NonnullRefPtr<Core::Promise<ByteString>> ask_user_for_extension_folder() const;
+    // Whether a folder was named by --load-extension, which loads it every time Ladybird starts with the option.
+    bool is_extension_folder_from_command_line(ByteString const& directory) const;
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
     ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&, Optional<URL::Origin> const& requesting_origin);
     ErrorOr<IPC::File> open_favicon_for_extension(LoadedExtension const&, URL::URL const&, StringView relative_path, ExtensionFileRequester, Optional<URL::Origin> const& requesting_origin);
@@ -710,8 +719,9 @@ private:
     Vector<LoadedExtension> m_extensions;
     Vector<LoadedExtension> m_disabled_extensions;
     Vector<ExtensionLoadError> m_extension_load_errors;
-    // The IDs of the extensions the user turned off, kept in the profile.
+    // The IDs of the extensions the user turned off, and the folders of those they installed, kept in the profile.
     HashTable<String> m_disabled_extension_ids;
+    Vector<ByteString> m_installed_extension_paths;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

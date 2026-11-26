@@ -39,6 +39,12 @@ void ExtensionsUI::register_interfaces()
     register_interface("retryExtensionLoad"sv, [this](auto const& data) {
         retry_extension_load(data);
     });
+    register_interface("loadUnpacked"sv, [this](auto const&) {
+        load_unpacked();
+    });
+    register_interface("forgetExtensionFolder"sv, [this](auto const& data) {
+        forget_extension_folder(data);
+    });
 }
 
 static JsonArray strings_of(JsonObject const& object, StringView key)
@@ -87,6 +93,7 @@ static JsonObject serialize_extension(LoadedExtension const& extension, bool ena
     serialized.set("version"sv, extension.version);
     serialized.set("description"sv, manifest.get_string("description"sv).value_or({}));
     serialized.set("directory"sv, String::from_utf8_with_replacement_character(extension.directory));
+    serialized.set("fromCommandLine"sv, Application::the().is_extension_folder_from_command_line(extension.directory));
     serialized.set("manifestVersion"sv, manifest.get_integer<i64>("manifest_version"sv).value_or(0));
     if (auto icon = icon_data_url(extension); icon.has_value())
         serialized.set("icon"sv, icon.release_value());
@@ -216,6 +223,40 @@ void ExtensionsUI::retry_extension_load(JsonValue const& data)
 
     // A failure shows as the folder's new reason, in the list of extensions that could not be loaded.
     (void)Application::the().retry_extension_load(data.as_string().to_byte_string());
+    load_extensions();
+}
+
+void ExtensionsUI::load_unpacked()
+{
+    if (!has_client())
+        return;
+
+    // Only a click on the page asks for a folder.
+    auto* page = client().page(page_id());
+    if (!page || !page->consume_transient_user_activation())
+        return;
+
+    Application::the().ask_user_for_extension_folder()->when_resolved([weak_this = make_weak_ptr<ExtensionsUI>()](ByteString const& directory) {
+        auto result = Application::the().install_unpacked_extension(directory);
+        auto self = weak_this.strong_ref();
+        if (!self)
+            return;
+        if (result.is_error()) {
+            JsonObject message;
+            message.set("directory"sv, String::from_utf8_with_replacement_character(directory));
+            message.set("error"sv, MUST(String::formatted("{}", result.error())));
+            self->async_send_message("installFailed"sv, move(message));
+        }
+        self->load_extensions();
+    });
+}
+
+void ExtensionsUI::forget_extension_folder(JsonValue const& data)
+{
+    if (!data.is_string())
+        return;
+
+    Application::the().forget_extension_folder(data.as_string());
     load_extensions();
 }
 

@@ -24,6 +24,8 @@ private:
     void remove_extension(JsonValue const&);
     void reload_extension(JsonValue const&);
     void retry_extension_load(JsonValue const&);
+    void load_unpacked();
+    void forget_extension_folder(JsonValue const&);
     void report_failure(StringView action, String const& extension_id, Error const&);
 };
 

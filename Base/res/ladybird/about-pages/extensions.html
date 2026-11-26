@@ -144,12 +144,27 @@
                 padding: 16px 20px;
             }
 
-            .load-error > :not(.load-error-title, button) {
+            .load-error > :not(.load-error-title, .load-error-actions) {
                 grid-column: 1;
             }
 
-            .load-error > button {
+            .load-error-actions {
                 grid-row: span 3;
+                display: flex;
+                gap: 8px;
+            }
+
+            .page-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+            }
+
+            #install-failure {
+                padding: 16px 20px;
+                color: var(--error);
+                overflow-wrap: anywhere;
             }
 
             .load-error-title {
@@ -248,17 +263,19 @@
         </style>
     </head>
     <body>
-        <header>
+        <header class="page-header">
             <h1>Extensions</h1>
+            <button id="load-unpacked" class="primary-button">Load Unpacked…</button>
         </header>
+
+        <div id="install-failure" class="card hidden"></div>
 
         <div id="errors-card" class="card hidden"></div>
 
         <div class="card">
             <div id="extensions"></div>
             <div id="empty" class="hidden">
-                No extensions are loaded. Start Ladybird with
-                <span class="monospace">--load-extension=&lt;folder&gt;</span> to load an unpacked extension.
+                No extensions are installed. Choose Load Unpacked… to install an extension from its folder.
             </div>
         </div>
 
@@ -266,9 +283,11 @@
             <form method="dialog">
                 <h2 id="remove-dialog-title" class="dialog-title"></h2>
                 <p class="dialog-message">
-                    This deletes everything it saved, such as its settings. Ladybird loads it again the next time it
-                    starts with <span class="monospace">--load-extension</span> for its folder; the folder itself is
-                    left alone.
+                    This deletes everything it saved, such as its settings. Its folder is left alone.
+                    <span id="remove-dialog-command-line">
+                        Ladybird loads it again the next time it starts with
+                        <span class="monospace">--load-extension</span> for its folder.
+                    </span>
                 </p>
                 <div class="dialog-footer">
                     <button value="cancel" class="secondary-button" autofocus>Cancel</button>
@@ -282,6 +301,12 @@
             const emptyElement = document.querySelector("#empty");
             const errorsCard = document.querySelector("#errors-card");
             const removeDialog = document.querySelector("#remove-dialog");
+            const installFailure = document.querySelector("#install-failure");
+
+            document.querySelector("#load-unpacked").addEventListener("click", () => {
+                installFailure.classList.add("hidden");
+                sendAction("loadUnpacked");
+            });
 
             // What went wrong when the user last changed an extension, shown under it until they change one again.
             let failure = null;
@@ -293,6 +318,7 @@
 
             function confirmRemoval(extension) {
                 removeDialog.querySelector(".dialog-title").textContent = `Remove “${extension.name}”?`;
+                removeDialog.querySelector("#remove-dialog-command-line").hidden = !extension.fromCommandLine;
                 removeDialog.returnValue = "";
                 removeDialog.onclose = () => {
                     if (removeDialog.returnValue === "remove") sendAction("removeExtension", extension.id);
@@ -396,11 +422,16 @@
 
             function renderError(error) {
                 const row = element("div", "load-error");
+                const buttons = element("div", "load-error-actions");
                 const retry = element("button", "secondary-button", "Try Again");
                 retry.addEventListener("click", () => sendAction("retryExtensionLoad", error.directory));
+                const forget = element("button", "secondary-button", "Remove");
+                forget.title = "Stop loading an extension from this folder";
+                forget.addEventListener("click", () => sendAction("forgetExtensionFolder", error.directory));
+                buttons.append(retry, forget);
                 row.append(
                     element("div", "load-error-title", "Could not load"),
-                    retry,
+                    buttons,
                     element("div", "load-error-directory", error.directory),
                     element("div", "load-error-message", error.error)
                 );
@@ -408,6 +439,16 @@
             }
 
             document.addEventListener("WebUIMessage", event => {
+                if (event.detail.name === "installFailed") {
+                    const { directory, error } = event.detail.data;
+                    installFailure.replaceChildren(
+                        element("div", "load-error-title", "Could not install"),
+                        element("div", "load-error-directory", directory),
+                        element("div", "load-error-message", error)
+                    );
+                    installFailure.classList.remove("hidden");
+                    return;
+                }
                 if (event.detail.name === "extensionActionFailed") {
                     failure = event.detail.data;
                     return;

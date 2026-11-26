@@ -917,6 +917,7 @@ void Application::load_extensions()
 
     // NB: The extensions' own folders are named after their IDs, which are never this file's name.
     m_disabled_extension_ids.clear();
+    m_installed_extension_paths.clear();
     if (auto state = read_json_file(extensions_state_path()); !state.is_error()) {
         if (auto disabled = state.value().get_array("disabled"sv); disabled.has_value()) {
             disabled->for_each([&](JsonValue const& id) {
@@ -924,9 +925,17 @@ void Application::load_extensions()
                     m_disabled_extension_ids.set(id.as_string());
             });
         }
+        if (auto unpacked = state.value().get_array("unpacked"sv); unpacked.has_value()) {
+            unpacked->for_each([&](JsonValue const& path) {
+                if (path.is_string())
+                    m_installed_extension_paths.append(path.as_string().to_byte_string());
+            });
+        }
     }
 
-    for (auto const& path : m_extension_paths) {
+    Vector<ByteString> paths = m_extension_paths;
+    paths.extend(m_installed_extension_paths);
+    for (auto const& path : paths) {
         auto extension = load_unpacked_extension(path);
         if (extension.is_error()) {
             warnln("Unable to load extension from {}: {}", path, extension.error());
@@ -964,8 +973,13 @@ void Application::save_extensions_state()
     for (auto const& id : ids)
         disabled.must_append(id);
 
+    JsonArray unpacked;
+    for (auto const& path : m_installed_extension_paths)
+        unpacked.must_append(String::from_utf8_with_replacement_character(path));
+
     JsonObject state;
     state.set("disabled"sv, move(disabled));
+    state.set("unpacked"sv, move(unpacked));
     if (auto result = write_json_file(extensions_state_path(), state); result.is_error())
         warnln("Unable to save which extensions are turned off: {}", result.error());
 }
@@ -1009,6 +1023,57 @@ ErrorOr<void> Application::set_extension_enabled(StringView id, bool enabled)
     return {};
 }
 
+// Whether a path names a folder, as its real path, which is how loaded extensions know their folders.
+static bool names_folder(ByteString const& path, ByteString const& directory)
+{
+    if (path == directory)
+        return true;
+    auto real_path = FileSystem::real_path(path);
+    return !real_path.is_error() && real_path.value() == directory;
+}
+
+bool Application::is_extension_folder_from_command_line(ByteString const& directory) const
+{
+    return any_of(m_extension_paths, [&](ByteString const& path) { return names_folder(path, directory); });
+}
+
+ErrorOr<void> Application::install_unpacked_extension(StringView directory)
+{
+    auto extension = TRY(load_unpacked_extension(directory));
+
+    if (!any_of(m_installed_extension_paths, [&](ByteString const& path) { return names_folder(path, extension.directory); }))
+        m_installed_extension_paths.append(extension.directory);
+    m_extension_load_errors.remove_all_matching([&](ExtensionLoadError const& error) { return names_folder(error.directory, extension.directory); });
+
+    // Loading an extension that is there already loads it afresh, and turns it on, as the user asked for it.
+    auto is_it = [&](LoadedExtension const& loaded) { return loaded.id == extension.id; };
+    if (any_of(m_extensions, is_it)) {
+        save_extensions_state();
+        return reload_extension(extension.id);
+    }
+    if (any_of(m_disabled_extensions, is_it)) {
+        save_extensions_state();
+        return set_extension_enabled(extension.id, true);
+    }
+
+    m_disabled_extension_ids.remove(extension.id);
+    save_extensions_state();
+
+    dbgln("Installed extension {} {} ({}) from {}", extension.name, extension.version, extension.id, extension.directory);
+    m_extensions.append(move(extension));
+    extensions_did_change();
+    return start_extension_background_page(m_extensions.last());
+}
+
+void Application::forget_extension_folder(StringView directory)
+{
+    auto folder = ByteString { directory };
+    m_extension_load_errors.remove_all_matching([&](ExtensionLoadError const& error) { return error.directory == folder; });
+    m_extension_paths.remove_all_matching([&](ByteString const& path) { return path == folder; });
+    if (m_installed_extension_paths.remove_all_matching([&](ByteString const& path) { return path == folder; }))
+        save_extensions_state();
+}
+
 ErrorOr<void> Application::remove_extension(StringView id)
 {
     auto is_it = [&](LoadedExtension const& extension) { return extension.id == id; };
@@ -1023,14 +1088,12 @@ ErrorOr<void> Application::remove_extension(StringView id)
         return Error::from_string_literal("No such extension");
     }
 
-    // It is not loaded again in this run, whichever path named its folder.
-    m_extension_paths.remove_all_matching([&](ByteString const& path) {
-        auto real_path = FileSystem::real_path(path);
-        return path == removed->directory || (!real_path.is_error() && real_path.value() == removed->directory);
-    });
-
-    if (m_disabled_extension_ids.remove(removed->id))
-        save_extensions_state();
+    // It is not loaded again in this run, whichever path named its folder, nor in later runs unless --load-extension
+    // names it.
+    m_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
+    m_installed_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
+    m_disabled_extension_ids.remove(removed->id);
+    save_extensions_state();
 
     // Like Chromium, what the extension stored goes with it, so installing it again starts afresh.
     auto data_directory = LexicalPath::join(profile().paths().data, "Extensions"sv, removed->id).string();
@@ -3154,6 +3217,11 @@ NonnullRefPtr<Core::Promise<LexicalPath>> Application::path_for_downloaded_file(
 }
 
 NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_download_path(ByteString const&) const
+{
+    return Core::Promise<ByteString>::rejected(Error::from_errno(ECANCELED));
+}
+
+NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_extension_folder() const
 {
     return Core::Promise<ByteString>::rejected(Error::from_errno(ECANCELED));
 }
