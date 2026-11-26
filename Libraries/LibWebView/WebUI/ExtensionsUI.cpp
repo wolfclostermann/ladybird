@@ -33,6 +33,12 @@ void ExtensionsUI::register_interfaces()
     register_interface("removeExtension"sv, [this](auto const& data) {
         remove_extension(data);
     });
+    register_interface("reloadExtension"sv, [this](auto const& data) {
+        reload_extension(data);
+    });
+    register_interface("retryExtensionLoad"sv, [this](auto const& data) {
+        retry_extension_load(data);
+    });
 }
 
 static JsonArray strings_of(JsonObject const& object, StringView key)
@@ -190,6 +196,26 @@ void ExtensionsUI::remove_extension(JsonValue const& data)
 
     if (auto result = Application::the().remove_extension(data.as_string()); result.is_error())
         report_failure("remove"sv, data.as_string(), result.error());
+    load_extensions();
+}
+
+void ExtensionsUI::reload_extension(JsonValue const& data)
+{
+    if (!data.is_string())
+        return;
+
+    if (auto result = Application::the().reload_extension(data.as_string()); result.is_error())
+        report_failure("reload"sv, data.as_string(), result.error());
+    load_extensions();
+}
+
+void ExtensionsUI::retry_extension_load(JsonValue const& data)
+{
+    if (!data.is_string())
+        return;
+
+    // A failure shows as the folder's new reason, in the list of extensions that could not be loaded.
+    (void)Application::the().retry_extension_load(data.as_string().to_byte_string());
     load_extensions();
 }
 

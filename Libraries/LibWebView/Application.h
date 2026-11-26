@@ -109,6 +109,10 @@ public:
     // Unloads an extension and deletes what it stored. One loaded with --load-extension comes back when Ladybird is
     // next started with that option, as in Chromium.
     ErrorOr<void> remove_extension(StringView id);
+    // Loads an enabled extension afresh from its folder, as after its files changed, and restarts it.
+    ErrorOr<void> reload_extension(StringView id);
+    // Tries again to load an extension that could not be loaded from a folder.
+    ErrorOr<void> retry_extension_load(StringView directory);
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
     ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&, Optional<URL::Origin> const& requesting_origin);
     ErrorOr<IPC::File> open_favicon_for_extension(LoadedExtension const&, URL::URL const&, StringView relative_path, ExtensionFileRequester, Optional<URL::Origin> const& requesting_origin);
@@ -546,6 +550,7 @@ private:
     // Tells the renderers, the toolbar and the extension host that the set of enabled extensions changed.
     void extensions_did_change();
     void unload_extension(String const& id);
+    ErrorOr<void> start_extension_background_page(LoadedExtension const&);
     ByteString extensions_state_path() const;
     void save_extensions_state();
     ByteString content_blocker_list_path(StringView identifier) const;

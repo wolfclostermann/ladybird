@@ -136,7 +136,20 @@
             }
 
             .load-error {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 0 16px;
+                align-items: start;
+
                 padding: 16px 20px;
+            }
+
+            .load-error > :not(.load-error-title, button) {
+                grid-column: 1;
+            }
+
+            .load-error > button {
+                grid-row: span 3;
             }
 
             .load-error-title {
@@ -345,6 +358,13 @@
                     actions.append(options);
                 }
 
+                if (extension.enabled) {
+                    const reload = element("button", "secondary-button", "Reload");
+                    reload.title = "Load the extension again from its folder";
+                    reload.addEventListener("click", () => sendAction("reloadExtension", extension.id));
+                    actions.append(reload);
+                }
+
                 const remove = element("button", "secondary-button", "Remove");
                 remove.addEventListener("click", () => confirmRemoval(extension));
                 actions.append(remove);
@@ -376,8 +396,11 @@
 
             function renderError(error) {
                 const row = element("div", "load-error");
+                const retry = element("button", "secondary-button", "Try Again");
+                retry.addEventListener("click", () => sendAction("retryExtensionLoad", error.directory));
                 row.append(
                     element("div", "load-error-title", "Could not load"),
+                    retry,
                     element("div", "load-error-directory", error.directory),
                     element("div", "load-error-message", error.error)
                 );

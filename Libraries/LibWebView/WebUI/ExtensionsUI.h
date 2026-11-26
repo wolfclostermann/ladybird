@@ -22,6 +22,8 @@ private:
     void open_options_page(JsonValue const&);
     void set_extension_enabled(JsonValue const&);
     void remove_extension(JsonValue const&);
+    void reload_extension(JsonValue const&);
+    void retry_extension_load(JsonValue const&);
     void report_failure(StringView action, String const& extension_id, Error const&);
 };
 

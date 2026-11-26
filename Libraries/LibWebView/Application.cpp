@@ -992,11 +992,7 @@ ErrorOr<void> Application::set_extension_enabled(StringView id, bool enabled)
 
         m_extensions.append(reloaded.release_value());
         extensions_did_change();
-
-        auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
-        auto theme = TRY(Gfx::load_system_theme(theme_path.string()));
-        start_extension_background_page(m_extensions.last(), theme);
-        return {};
+        return start_extension_background_page(m_extensions.last());
     }
 
     auto index = find_in(m_extensions);
@@ -1045,6 +1041,57 @@ ErrorOr<void> Application::remove_extension(StringView id)
 
     dbgln("Removed extension {} ({})", removed->name, removed->id);
     extensions_did_change();
+    return {};
+}
+
+ErrorOr<void> Application::reload_extension(StringView id)
+{
+    auto index = m_extensions.find_first_index_if([&](LoadedExtension const& extension) { return extension.id == id; });
+    if (!index.has_value())
+        return Error::from_string_literal("No such extension");
+
+    // If it no longer loads, the version that runs keeps running, and the user is told why.
+    auto reloaded = TRY(load_unpacked_extension(m_extensions[*index].directory));
+
+    unload_extension(m_extensions[*index].id);
+    m_extensions[*index] = move(reloaded);
+    extensions_did_change();
+    dbgln("Reloaded extension {} {} ({})", m_extensions[*index].name, m_extensions[*index].version, m_extensions[*index].id);
+    return start_extension_background_page(m_extensions[*index]);
+}
+
+ErrorOr<void> Application::retry_extension_load(StringView directory)
+{
+    auto index = m_extension_load_errors.find_first_index_if([&](ExtensionLoadError const& error) { return error.directory == directory; });
+    if (!index.has_value())
+        return Error::from_string_literal("No such folder");
+
+    auto extension = load_unpacked_extension(directory);
+    if (extension.is_error()) {
+        m_extension_load_errors[*index].error = MUST(String::formatted("{}", extension.error()));
+        return extension.release_error();
+    }
+    m_extension_load_errors.remove(*index);
+
+    auto const& id = extension.value().id;
+    auto is_loaded = [&](LoadedExtension const& loaded) { return loaded.id == id; };
+    if (any_of(m_extensions, is_loaded) || any_of(m_disabled_extensions, is_loaded))
+        return {};
+
+    if (m_disabled_extension_ids.contains(id)) {
+        m_disabled_extensions.append(extension.release_value());
+        return {};
+    }
+    m_extensions.append(extension.release_value());
+    extensions_did_change();
+    return start_extension_background_page(m_extensions.last());
+}
+
+ErrorOr<void> Application::start_extension_background_page(LoadedExtension const& extension)
+{
+    auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
+    auto theme = TRY(Gfx::load_system_theme(theme_path.string()));
+    start_extension_background_page(extension, theme);
     return {};
 }
 
