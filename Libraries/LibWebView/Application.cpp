@@ -904,10 +904,28 @@ Optional<UnixDateTime> Application::content_blocker_list_last_updated_at(StringV
     return {};
 }
 
+ByteString Application::extensions_state_path() const
+{
+    return LexicalPath::join(profile().paths().data, "Extensions"sv, "extensions.json"sv).string();
+}
+
 void Application::load_extensions()
 {
     m_extensions.clear();
+    m_disabled_extensions.clear();
     m_extension_load_errors.clear();
+
+    // NB: The extensions' own folders are named after their IDs, which are never this file's name.
+    m_disabled_extension_ids.clear();
+    if (auto state = read_json_file(extensions_state_path()); !state.is_error()) {
+        if (auto disabled = state.value().get_array("disabled"sv); disabled.has_value()) {
+            disabled->for_each([&](JsonValue const& id) {
+                if (id.is_string())
+                    m_disabled_extension_ids.set(id.as_string());
+            });
+        }
+    }
+
     for (auto const& path : m_extension_paths) {
         auto extension = load_unpacked_extension(path);
         if (extension.is_error()) {
@@ -915,7 +933,19 @@ void Application::load_extensions()
             m_extension_load_errors.append({ path, MUST(String::formatted("{}", extension.error())) });
             continue;
         }
-        dbgln("Loaded extension {} {} ({}) from {}", extension.value().name, extension.value().version, extension.value().id, extension.value().directory);
+
+        // The same folder may be named twice, by different paths.
+        auto const& id = extension.value().id;
+        auto is_loaded = [&](LoadedExtension const& loaded) { return loaded.id == id; };
+        if (any_of(m_extensions, is_loaded) || any_of(m_disabled_extensions, is_loaded))
+            continue;
+
+        if (m_disabled_extension_ids.contains(id)) {
+            dbgln("Extension {} ({}) is turned off", extension.value().name, id);
+            m_disabled_extensions.append(extension.release_value());
+            continue;
+        }
+        dbgln("Loaded extension {} {} ({}) from {}", extension.value().name, extension.value().version, id, extension.value().directory);
         m_extensions.append(extension.release_value());
     }
 
@@ -923,6 +953,129 @@ void Application::load_extensions()
         m_extensions_json.clear();
     else
         m_extensions_json = serialize_extensions_for_web_content(m_extensions);
+}
+
+void Application::save_extensions_state()
+{
+    JsonArray disabled;
+    // Sorted, so that the file changes only when the set does.
+    auto ids = m_disabled_extension_ids.values();
+    quick_sort(ids);
+    for (auto const& id : ids)
+        disabled.must_append(id);
+
+    JsonObject state;
+    state.set("disabled"sv, move(disabled));
+    if (auto result = write_json_file(extensions_state_path(), state); result.is_error())
+        warnln("Unable to save which extensions are turned off: {}", result.error());
+}
+
+ErrorOr<void> Application::set_extension_enabled(StringView id, bool enabled)
+{
+    auto find_in = [&](Vector<LoadedExtension>& extensions) -> Optional<size_t> {
+        return extensions.find_first_index_if([&](LoadedExtension const& extension) { return extension.id == id; });
+    };
+
+    if (enabled) {
+        auto index = find_in(m_disabled_extensions);
+        if (!index.has_value())
+            return find_in(m_extensions).has_value() ? ErrorOr<void> {} : Error::from_string_literal("No such extension");
+
+        // Its files may have changed while it was off, so it is loaded afresh, as Chromium does.
+        auto reloaded = load_unpacked_extension(m_disabled_extensions[*index].directory);
+        if (reloaded.is_error())
+            return reloaded.release_error();
+
+        m_disabled_extensions.remove(*index);
+        m_disabled_extension_ids.remove(id);
+        save_extensions_state();
+
+        m_extensions.append(reloaded.release_value());
+        extensions_did_change();
+
+        auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
+        auto theme = TRY(Gfx::load_system_theme(theme_path.string()));
+        start_extension_background_page(m_extensions.last(), theme);
+        return {};
+    }
+
+    auto index = find_in(m_extensions);
+    if (!index.has_value())
+        return find_in(m_disabled_extensions).has_value() ? ErrorOr<void> {} : Error::from_string_literal("No such extension");
+
+    auto extension = m_extensions.take(*index);
+    m_disabled_extension_ids.set(extension.id);
+    save_extensions_state();
+
+    unload_extension(extension.id);
+    m_disabled_extensions.append(move(extension));
+    extensions_did_change();
+    return {};
+}
+
+ErrorOr<void> Application::remove_extension(StringView id)
+{
+    auto is_it = [&](LoadedExtension const& extension) { return extension.id == id; };
+
+    Optional<LoadedExtension> removed;
+    if (auto index = m_extensions.find_first_index_if(is_it); index.has_value()) {
+        removed = m_extensions.take(*index);
+        unload_extension(removed->id);
+    } else if (auto index = m_disabled_extensions.find_first_index_if(is_it); index.has_value()) {
+        removed = m_disabled_extensions.take(*index);
+    } else {
+        return Error::from_string_literal("No such extension");
+    }
+
+    // It is not loaded again in this run, whichever path named its folder.
+    m_extension_paths.remove_all_matching([&](ByteString const& path) {
+        auto real_path = FileSystem::real_path(path);
+        return path == removed->directory || (!real_path.is_error() && real_path.value() == removed->directory);
+    });
+
+    if (m_disabled_extension_ids.remove(removed->id))
+        save_extensions_state();
+
+    // Like Chromium, what the extension stored goes with it, so installing it again starts afresh.
+    auto data_directory = LexicalPath::join(profile().paths().data, "Extensions"sv, removed->id).string();
+    if (FileSystem::exists(data_directory)) {
+        if (auto result = FileSystem::remove(data_directory, FileSystem::RecursionMode::Allowed); result.is_error())
+            warnln("Unable to delete the data of extension {}: {}", removed->name, result.error());
+    }
+
+    dbgln("Removed extension {} ({})", removed->name, removed->id);
+    extensions_did_change();
+    return {};
+}
+
+// Stops what runs of an extension that is no longer enabled: its background page, and the tabs and popups that show its
+// pages, which Chromium closes too.
+void Application::unload_extension(String const& id)
+{
+    Vector<ViewImplementation*> views_to_close;
+    ViewImplementation::for_each_view([&](ViewImplementation& view) {
+        if (is_extension_background_view(view))
+            return IterationDecision::Continue;
+        auto url = view.url();
+        if (url.scheme() == "chrome-extension"sv && url.serialized_host() == id)
+            views_to_close.append(&view);
+        return IterationDecision::Continue;
+    });
+    for (auto* view : views_to_close)
+        view->request_close();
+
+    m_extension_background_views.remove(id);
+    m_extension_host.extension_did_unload(id);
+}
+
+void Application::extensions_did_change()
+{
+    // NB: A renderer that was told of extensions must be told when none are left.
+    m_extensions_json = serialize_extensions_for_web_content(m_extensions);
+    for (auto const& client : m_web_content_clients)
+        client->async_set_extensions(*m_extensions_json);
+
+    extension_actions_changed();
 }
 
 LoadedExtension const* Application::extension_with_id(StringView id) const
@@ -1029,23 +1182,27 @@ ErrorOr<void> Application::start_extension_background_pages()
     auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
     auto theme = TRY(Gfx::load_system_theme(theme_path.string()));
 
-    for (auto const& extension : m_extensions) {
-        auto path = background_page_path(extension);
-        if (!path.has_value())
-            continue;
-
-        auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension.id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
-        if (!url.has_value()) {
-            warnln("Extension {} has an invalid background page: {}", extension.name, *path);
-            continue;
-        }
-
-        // The background page is never shown, so it is hosted by a view without a window.
-        auto view = HeadlessWebView::create(theme, { 800, 600 });
-        m_extension_background_views.set(extension.id, move(view));
-        m_extension_background_views.get(extension.id).value()->load_from_browser_ui(*url);
-    }
+    for (auto const& extension : m_extensions)
+        start_extension_background_page(extension, theme);
     return {};
+}
+
+void Application::start_extension_background_page(LoadedExtension const& extension, Core::AnonymousBuffer const& theme)
+{
+    auto path = background_page_path(extension);
+    if (!path.has_value())
+        return;
+
+    auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension.id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+    if (!url.has_value()) {
+        warnln("Extension {} has an invalid background page: {}", extension.name, *path);
+        return;
+    }
+
+    // The background page is never shown, so it is hosted by a view without a window.
+    auto view = HeadlessWebView::create(theme, { 800, 600 });
+    m_extension_background_views.set(extension.id, move(view));
+    m_extension_background_views.get(extension.id).value()->load_from_browser_ui(*url);
 }
 
 void Application::rebuild_content_blocker_list_paths()

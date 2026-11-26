@@ -27,6 +27,12 @@ void ExtensionsUI::register_interfaces()
     register_interface("openOptionsPage"sv, [this](auto const& data) {
         open_options_page(data);
     });
+    register_interface("setExtensionEnabled"sv, [this](auto const& data) {
+        set_extension_enabled(data);
+    });
+    register_interface("removeExtension"sv, [this](auto const& data) {
+        remove_extension(data);
+    });
 }
 
 static JsonArray strings_of(JsonObject const& object, StringView key)
@@ -64,12 +70,13 @@ static Optional<String> icon_data_url(LoadedExtension const& extension)
     return MUST(String::formatted("data:{};base64,{}", type, encoded.value()));
 }
 
-static JsonObject serialize_extension(LoadedExtension const& extension)
+static JsonObject serialize_extension(LoadedExtension const& extension, bool enabled)
 {
     auto const& manifest = extension.manifest;
 
     JsonObject serialized;
     serialized.set("id"sv, extension.id);
+    serialized.set("enabled"sv, enabled);
     serialized.set("name"sv, extension.name);
     serialized.set("version"sv, extension.version);
     serialized.set("description"sv, manifest.get_string("description"sv).value_or({}));
@@ -121,7 +128,9 @@ void ExtensionsUI::load_extensions()
 
     JsonArray extensions;
     for (auto const& extension : application.extensions())
-        extensions.must_append(serialize_extension(extension));
+        extensions.must_append(serialize_extension(extension, true));
+    for (auto const& extension : application.disabled_extensions())
+        extensions.must_append(serialize_extension(extension, false));
 
     JsonArray errors;
     for (auto const& [directory, error] : application.extension_load_errors()) {
@@ -158,6 +167,38 @@ void ExtensionsUI::open_options_page(JsonValue const& data)
     if (!url.has_value())
         return;
     Application::the().open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes);
+}
+
+void ExtensionsUI::set_extension_enabled(JsonValue const& data)
+{
+    if (!data.is_object())
+        return;
+    auto id = data.as_object().get_string("id"sv);
+    auto enabled = data.as_object().get_bool("enabled"sv);
+    if (!id.has_value() || !enabled.has_value())
+        return;
+
+    if (auto result = Application::the().set_extension_enabled(*id, *enabled); result.is_error())
+        report_failure(*enabled ? "turn on"sv : "turn off"sv, *id, result.error());
+    load_extensions();
+}
+
+void ExtensionsUI::remove_extension(JsonValue const& data)
+{
+    if (!data.is_string())
+        return;
+
+    if (auto result = Application::the().remove_extension(data.as_string()); result.is_error())
+        report_failure("remove"sv, data.as_string(), result.error());
+    load_extensions();
+}
+
+void ExtensionsUI::report_failure(StringView action, String const& extension_id, Error const& error)
+{
+    JsonObject message;
+    message.set("id"sv, extension_id);
+    message.set("error"sv, MUST(String::formatted("Could not {} the extension: {}", action, error)));
+    async_send_message("extensionActionFailed"sv, move(message));
 }
 
 }

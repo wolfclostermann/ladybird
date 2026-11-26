@@ -10,7 +10,8 @@
 
 namespace WebView {
 
-// about:extensions, which lists the extensions that were loaded and the ones that could not be.
+// about:extensions, which lists the extensions that were loaded and the ones that could not be, and turns them on and
+// off or removes them.
 class ExtensionsUI final : public WebUI {
     WEB_UI(ExtensionsUI);
 
@@ -19,6 +20,9 @@ private:
 
     void load_extensions();
     void open_options_page(JsonValue const&);
+    void set_extension_enabled(JsonValue const&);
+    void remove_extension(JsonValue const&);
+    void report_failure(StringView action, String const& extension_id, Error const&);
 };
 
 }

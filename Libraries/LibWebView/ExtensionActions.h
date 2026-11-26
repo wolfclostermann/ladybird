@@ -49,6 +49,8 @@ public:
     Click click(LoadedExtension const&, u64 view_id);
 
     void view_will_be_destroyed(u64 view_id);
+    // Forgets what the action API set of an extension's button, as the extension was turned off or removed.
+    void forget(String const& extension_id) { m_states.remove(extension_id); }
 
     // The buttons of the extensions that have one, as JSON for the UI: for each, what it shows in every tab, and what
     // it shows instead in particular tabs.

@@ -100,7 +100,15 @@ public:
 
     Vector<LoadedExtension> const& extensions() const { return m_extensions; }
     Vector<ExtensionLoadError> const& extension_load_errors() const { return m_extension_load_errors; }
+    // The extensions the user turned off, which stay loaded only so that about:extensions can show them.
+    Vector<LoadedExtension> const& disabled_extensions() const { return m_disabled_extensions; }
+    // The enabled extension with the ID, if there is one.
     LoadedExtension const* extension_with_id(StringView id) const;
+    // Turns an extension on or off, for this run and later ones.
+    ErrorOr<void> set_extension_enabled(StringView id, bool enabled);
+    // Unloads an extension and deletes what it stored. One loaded with --load-extension comes back when Ladybird is
+    // next started with that option, as in Chromium.
+    ErrorOr<void> remove_extension(StringView id);
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
     ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&, Optional<URL::Origin> const& requesting_origin);
     ErrorOr<IPC::File> open_favicon_for_extension(LoadedExtension const&, URL::URL const&, StringView relative_path, ExtensionFileRequester, Optional<URL::Origin> const& requesting_origin);
@@ -534,6 +542,12 @@ private:
     void rebuild_content_blocker_list_paths();
     void load_extensions();
     ErrorOr<void> start_extension_background_pages();
+    void start_extension_background_page(LoadedExtension const&, Core::AnonymousBuffer const& theme);
+    // Tells the renderers, the toolbar and the extension host that the set of enabled extensions changed.
+    void extensions_did_change();
+    void unload_extension(String const& id);
+    ByteString extensions_state_path() const;
+    void save_extensions_state();
     ByteString content_blocker_list_path(StringView identifier) const;
     ErrorOr<void> save_content_blocker_list(ByteString const& path, ReadonlyBytes);
     enum class ContentBlockerListUpdateTrigger {
@@ -689,7 +703,10 @@ private:
     Vector<ByteString> m_explicit_content_blocker_list_paths;
     Vector<ByteString> m_extension_paths;
     Vector<LoadedExtension> m_extensions;
+    Vector<LoadedExtension> m_disabled_extensions;
     Vector<ExtensionLoadError> m_extension_load_errors;
+    // The IDs of the extensions the user turned off, kept in the profile.
+    HashTable<String> m_disabled_extension_ids;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

@@ -62,7 +62,29 @@
             .extension-actions {
                 grid-row: span 3;
                 display: flex;
+                align-items: center;
                 gap: 8px;
+            }
+
+            .extension-actions input[type="checkbox"][switch] {
+                margin-left: 4px;
+            }
+
+            /* A turned-off extension stays listed, faded, so that it can be turned on again. */
+            .extension.disabled :is(.extension-icon, .extension-name, .extension-description) {
+                opacity: 0.5;
+            }
+
+            .extension-state {
+                margin-left: 6px;
+                color: var(--secondary-text-color);
+                font-weight: 400;
+            }
+
+            .extension-failure {
+                grid-column: 2 / span 2;
+                color: var(--error);
+                overflow-wrap: anywhere;
             }
 
             .extension-description {
@@ -137,6 +159,47 @@
                 color: var(--secondary-text-color);
             }
 
+            dialog {
+                color: var(--text);
+                background-color: var(--surface);
+                box-shadow:
+                    0 0 0 1px var(--edge),
+                    var(--dialog-shadow);
+
+                width: 90%;
+                max-width: 440px;
+
+                margin: auto;
+                padding: 20px;
+
+                border: none;
+                border-radius: 12px;
+                outline: none;
+            }
+
+            dialog::backdrop {
+                background-color: rgba(0, 0, 0, 0.5);
+            }
+
+            .dialog-title {
+                margin: 0 0 8px 0;
+                font-size: 15px;
+                font-weight: 600;
+                overflow-wrap: anywhere;
+            }
+
+            .dialog-message {
+                margin: 0;
+                color: var(--secondary-text-color);
+            }
+
+            .dialog-footer {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+                margin-top: 20px;
+            }
+
             #empty {
                 padding: 20px;
                 color: var(--secondary-text-color);
@@ -186,10 +249,43 @@
             </div>
         </div>
 
+        <dialog id="remove-dialog" closedby="any" aria-labelledby="remove-dialog-title">
+            <form method="dialog">
+                <h2 id="remove-dialog-title" class="dialog-title"></h2>
+                <p class="dialog-message">
+                    This deletes everything it saved, such as its settings. Ladybird loads it again the next time it
+                    starts with <span class="monospace">--load-extension</span> for its folder; the folder itself is
+                    left alone.
+                </p>
+                <div class="dialog-footer">
+                    <button value="cancel" class="secondary-button" autofocus>Cancel</button>
+                    <button value="remove" class="primary-button">Remove</button>
+                </div>
+            </form>
+        </dialog>
+
         <script>
             const extensionsElement = document.querySelector("#extensions");
             const emptyElement = document.querySelector("#empty");
             const errorsCard = document.querySelector("#errors-card");
+            const removeDialog = document.querySelector("#remove-dialog");
+
+            // What went wrong when the user last changed an extension, shown under it until they change one again.
+            let failure = null;
+
+            function sendAction(name, data) {
+                failure = null;
+                ladybird.sendMessage(name, data);
+            }
+
+            function confirmRemoval(extension) {
+                removeDialog.querySelector(".dialog-title").textContent = `Remove “${extension.name}”?`;
+                removeDialog.returnValue = "";
+                removeDialog.onclose = () => {
+                    if (removeDialog.returnValue === "remove") sendAction("removeExtension", extension.id);
+                };
+                removeDialog.showModal();
+            }
 
             function element(tag, className, text) {
                 const result = document.createElement(tag);
@@ -235,26 +331,46 @@
             }
 
             function renderExtension(extension) {
-                const row = element("div", "extension");
+                const row = element("div", extension.enabled ? "extension" : "extension disabled");
                 row.dataset.id = extension.id;
 
                 const name = element("div", "extension-name", extension.name);
                 if (extension.version) name.append(element("span", "extension-version", extension.version));
+                if (!extension.enabled) name.append(element("span", "extension-state", "Off"));
 
                 const actions = element("div", "extension-actions");
-                if (extension.hasOptionsPage) {
+                if (extension.hasOptionsPage && extension.enabled) {
                     const options = element("button", "secondary-button", "Options");
                     options.addEventListener("click", () => ladybird.sendMessage("openOptionsPage", extension.id));
                     actions.append(options);
                 }
 
+                const remove = element("button", "secondary-button", "Remove");
+                remove.addEventListener("click", () => confirmRemoval(extension));
+                actions.append(remove);
+
+                const toggle = element("input");
+                toggle.type = "checkbox";
+                toggle.setAttribute("switch", "");
+                toggle.checked = extension.enabled;
+                toggle.title = extension.enabled ? "Turn off" : "Turn on";
+                toggle.setAttribute("aria-label", `${extension.enabled ? "Turn off" : "Turn on"} ${extension.name}`);
+                toggle.addEventListener("change", () => {
+                    // The list is drawn again once the browser has done it, or failed to.
+                    toggle.disabled = true;
+                    sendAction("setExtensionEnabled", { id: extension.id, enabled: toggle.checked });
+                });
+                actions.append(toggle);
+
                 row.append(
                     renderIcon(extension),
                     name,
                     actions,
-                    element("div", "extension-description", extension.description),
-                    renderDetails(extension)
+                    element("div", "extension-description", extension.description)
                 );
+                if (failure && failure.id === extension.id)
+                    row.append(element("div", "extension-failure", failure.error));
+                row.append(renderDetails(extension));
                 return row;
             }
 
@@ -269,12 +385,25 @@
             }
 
             document.addEventListener("WebUIMessage", event => {
+                if (event.detail.name === "extensionActionFailed") {
+                    failure = event.detail.data;
+                    return;
+                }
                 if (event.detail.name !== "loadExtensions") return;
 
                 const { extensions, errors } = event.detail.data;
                 const sorted = extensions.toSorted((a, b) => a.name.localeCompare(b.name));
 
-                extensionsElement.replaceChildren(...sorted.map(renderExtension));
+                // Drawing the list again keeps open the details that were.
+                const openDetails = new Set(
+                    [...extensionsElement.querySelectorAll(".extension > details[open]")].map(
+                        details => details.parentElement.dataset.id
+                    )
+                );
+
+                const rows = sorted.map(renderExtension);
+                for (const row of rows) if (openDetails.has(row.dataset.id)) row.querySelector("details").open = true;
+                extensionsElement.replaceChildren(...rows);
                 emptyElement.classList.toggle("hidden", extensions.length > 0);
 
                 errorsCard.replaceChildren(...errors.map(renderError));

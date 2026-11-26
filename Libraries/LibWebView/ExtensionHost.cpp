@@ -445,10 +445,16 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
 {
     // What the tabs and windows APIs give leaves out what the extension may not see of the tabs.
     if (api.starts_with("tabs."sv) || api.starts_with("windows."sv)) {
-        complete = [&extension, complete = move(complete)](CallResult call_result) mutable {
+        // NB: The extension may be turned off or removed before the call completes, so it is looked up again.
+        complete = [extension_id = extension.id, complete = move(complete)](CallResult call_result) mutable {
             if (!call_result.is_error && !call_result.payload.is_empty()) {
+                auto const* extension = Application::the().extension_with_id(extension_id);
+                if (!extension) {
+                    complete(error("The extension was turned off"sv));
+                    return;
+                }
                 if (auto parsed = JsonParser::parse(call_result.payload); !parsed.is_error())
-                    call_result.payload = tabs_as_seen_by(extension, parsed.value()).serialized();
+                    call_result.payload = tabs_as_seen_by(*extension, parsed.value()).serialized();
             }
             complete(move(call_result));
         };
@@ -693,7 +699,13 @@ void ExtensionHost::runtime_send_message(WebContentPage& page, LoadedExtension c
     event_arguments.must_append(arguments.is_empty() ? JsonValue {} : arguments.at(0));
     event_arguments.must_append(sender_for(page, extension, context));
 
-    auto send = [this, background_view, extension_id = extension.id, event_arguments = move(event_arguments), complete = move(complete)]() mutable {
+    // NB: The message may wait for the background page, which is gone if the extension is turned off meanwhile.
+    auto send = [this, extension_id = extension.id, event_arguments = move(event_arguments), complete = move(complete)]() mutable {
+        auto* background_view = Application::the().extension_background_view(extension_id);
+        if (!background_view) {
+            complete(error("Could not establish connection. Receiving end does not exist."sv));
+            return;
+        }
         JsonObject target;
         target.set("contextType"sv, "extension_page"sv);
         dispatch_event(*background_view, extension_id, target, "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Optional<String> response) mutable {
@@ -1990,6 +2002,21 @@ void ExtensionHost::bookmarks_call(StringView function, JsonArray const& argumen
 
     // FIXME: Change bookmarks, which the UI keeps, through the UI.
     complete(error(MUST(String::formatted("chrome.bookmarks.{} is not implemented yet", function))));
+}
+
+void ExtensionHost::extension_did_unload(String const& extension_id)
+{
+    // NB: Storage is saved as it changes, so nothing is lost by dropping it.
+    m_storage.remove(extension_id);
+    m_session_storage_open_to_content_scripts.remove(extension_id);
+    m_pages_with_injected_scripts.remove(extension_id);
+    m_loaded_background_pages.remove(extension_id);
+
+    // The calls that waited for its background page fail now that it is gone.
+    for (auto& send : m_waiting_for_background_page.take(extension_id).value_or({}))
+        send();
+
+    m_actions->forget(extension_id);
 }
 
 String ExtensionHost::serialized_actions()

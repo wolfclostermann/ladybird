@@ -73,6 +73,9 @@ public:
     // https://developer.chrome.com/docs/extensions/reference/api/action#event-onClicked
     void action_clicked(String const& extension_id, u64 view_id);
 
+    // Forgets what the host keeps of an extension that was turned off or removed. What it stored stays on disk.
+    void extension_did_unload(String const& extension_id);
+
     // Called as the application tears down, after which no event is dispatched.
     void stop_dispatching_events() { m_dispatches_events = false; }
 
