@@ -1,1 +1,1 @@
-console.log('WAR ran secret.js in ' + location.host)
+console.log("WAR ran secret.js in " + location.host);

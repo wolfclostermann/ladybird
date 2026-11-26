@@ -9,10 +9,14 @@ async function show(note) {
 
 document.getElementById("ask").addEventListener("click", () => {
     chrome.permissions.request(wanted).then(
-        (granted) => show(granted ? "Granted" : "Declined"),
-        (error) => show(`Error: ${error.message}`));
+        granted => show(granted ? "Granted" : "Declined"),
+        error => show(`Error: ${error.message}`)
+    );
 });
 document.getElementById("remove").addEventListener("click", () => {
-    chrome.permissions.remove(wanted).then(() => show("Removed"), (error) => show(`Error: ${error.message}`));
+    chrome.permissions.remove(wanted).then(
+        () => show("Removed"),
+        error => show(`Error: ${error.message}`)
+    );
 });
 show("");

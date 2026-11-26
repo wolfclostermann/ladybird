@@ -13,7 +13,7 @@ async function probe() {
     await chrome.action.setBadgeText({ text });
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
+chrome.action.onClicked.addListener(async tab => {
     console.log("activeTab probe clicked; tab.url =", tab.url);
     try {
         await chrome.scripting.executeScript({
@@ -21,7 +21,8 @@ chrome.action.onClicked.addListener(async (tab) => {
             func: () => {
                 const banner = document.createElement("div");
                 banner.textContent = "Injected by the Active Tab probe";
-                banner.style = "position:fixed;bottom:0;left:0;right:0;background:#cfc;padding:8px;font:16px sans-serif";
+                banner.style =
+                    "position:fixed;bottom:0;left:0;right:0;background:#cfc;padding:8px;font:16px sans-serif";
                 document.body.append(banner);
             },
         });

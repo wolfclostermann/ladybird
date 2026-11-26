@@ -1,1 +1,2 @@
-document.title = "injected"; "file result"
+document.title = "injected";
+("file result");

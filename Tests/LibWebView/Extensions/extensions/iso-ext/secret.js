@@ -1,1 +1,1 @@
-window.LEAK = (window.LEAK||"") + "SECRET";
+window.LEAK = (window.LEAK || "") + "SECRET";

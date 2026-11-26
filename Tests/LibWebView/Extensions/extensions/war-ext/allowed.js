@@ -1,1 +1,1 @@
-console.log('WAR ran allowed.js in ' + location.host)
+console.log("WAR ran allowed.js in " + location.host);

@@ -1,1 +1,1 @@
-console.log('WAR ran pub/ok.js')
+console.log("WAR ran pub/ok.js");
