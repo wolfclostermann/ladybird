@@ -108,8 +108,9 @@ All fixed. `TODO.md` is the live checklist.
 
 ### UI
 
-- `about:extensions` turns extensions on and off, reloads and removes them. Content scripts already running in a
-  page keep running until it reloads, as in Chromium. Removing one loaded with `--load-extension` lasts until
+- `about:extensions` turns extensions on and off, reloads and removes them. Content scripts' CSS comes and goes at
+  once in open pages (it is part of each document's user style sheet); their JavaScript, once run, stays in a page
+  until it reloads, as in Chromium. Removing one loaded with `--load-extension` lasts until
   Ladybird next starts with that option, since that is the only way to install one so far.
 - Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
   crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
