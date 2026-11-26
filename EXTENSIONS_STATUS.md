@@ -120,8 +120,9 @@ All fixed. `TODO.md` is the live checklist.
   `--load-extension` option, so its settings are there if the option comes back. Nothing tidies up those folders;
   only Remove deletes one.
 - Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
-  crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
-  shown in the sidebar layouts' collapsed rail.
+  crowd the toolbar. Right-clicking the button offers Options, Turn Off, Remove from Ladybird… and Manage
+  Extensions. `action.openPopup` is not implemented, and the button is not shown in the sidebar layouts' collapsed
+  rail.
 - Packed extensions install with Install from File…, but only CRX3 files (CRX2 is refused, as in current Chromium)
   and zip archives without ZIP64, encryption or compression other than deflate. Packed extensions are never updated;
   installing a newer file replaces the old one. There is no store, so Chromium's requirement of a Web Store

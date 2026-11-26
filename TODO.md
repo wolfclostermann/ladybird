@@ -40,7 +40,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] Install an unpacked folder from the browser (Load Unpacked… on `about:extensions`).
 - [x] Install packed `.crx` / `.zip` files from the browser (Install from File… on `about:extensions`). CRX3 only;
       signatures are checked, but there is no store or update channel.
-- [ ] An overflow menu or pinning for toolbar buttons; a context menu on them; `action.openPopup`.
+- [x] A context menu on toolbar buttons: Options, Turn Off, Remove from Ladybird… (with a confirmation), Manage
+      Extensions. Open about:extensions pages update when an extension changes elsewhere.
+- [ ] An overflow menu or pinning for toolbar buttons; `action.openPopup`.
 
 ## Housekeeping
 
