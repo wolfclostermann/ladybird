@@ -41,6 +41,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `7fd30c09527` | `about:extensions` turns extensions on and off (kept in `<profile data>/Extensions/extensions.json`) and removes them, deleting what they stored. |
 | `3ed85fc4beb` | `about:extensions` reloads an extension from its folder, and tries again to load a folder that failed. |
 | `a49aaa5cd4d` | `WebDriver --load-extension=<dir>` passes the option on to the browser, for scripted tests. |
+| `77cd95fe528` | `about:extensions` has a Load Unpacked… button that installs an extension folder for good (listed under `unpacked` in `extensions.json`), so it loads without `--load-extension`. |
 
 ### Where the code lives
 
@@ -111,12 +112,15 @@ All fixed. `TODO.md` is the live checklist.
 - `about:extensions` turns extensions on and off, reloads and removes them. Content scripts' CSS comes and goes at
   once in open pages (it is part of each document's user style sheet); their JavaScript, once run, stays in a page
   until it reloads, as in Chromium. Removing one loaded with `--load-extension` lasts until
-  Ladybird next starts with that option, since that is the only way to install one so far.
+  Ladybird next starts with that option; ones installed with Load Unpacked… are gone for good.
+- What an extension stored stays in `<profile data>/Extensions/<id>/` when Ladybird stops being started with its
+  `--load-extension` option, so its settings are there if the option comes back. Nothing tidies up those folders;
+  only Remove deletes one.
 - Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
   crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
   shown in the sidebar layouts' collapsed rail.
-- A way to install extensions from the browser: a Load Unpacked button (needs a folder picker from the UI) and
-  packed extensions (`.crx` / `.zip`, which needs a zip reader; LibCompress has only deflate).
+- Installing packed extensions (`.crx` / `.zip`) from the browser, which needs a zip reader (LibCompress has only
+  deflate). Unpacked folders install with Load Unpacked….
 - Only one window exists as far as extensions are concerned (window id 1).
 
 ### Housekeeping
