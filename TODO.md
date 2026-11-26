@@ -50,4 +50,6 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
   - [x] the `matches` of an extension's `web_accessible_resources` weren't checked;
   - [x] the page's CSP was bypassed for every `chrome-extension:` URL, not only web-accessible resources;
   - [x] permissions and host permissions weren't enforced;
+  - [x] no tests showed that extension file paths can't leave the extension's directory (they found an escape from
+        the web-accessible files, now fixed);
   - `activeTab` and optional permissions (`permissions.request`) aren't supported.

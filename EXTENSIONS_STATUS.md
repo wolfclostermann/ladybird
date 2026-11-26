@@ -224,8 +224,10 @@ extension's privileges. The three high-severity items below are fixed, and the f
    tabs; Chromium behaves the same. Small increase in what pages can do; acceptable.
 
 9. **Files on disk.** Extension files are read only by the browser process and passed to renderers as file
-   descriptors. Paths come from parsed URLs under a known extension's directory; worth an explicit test that `..`
-   segments and symlinks cannot escape the extension folder.
+   descriptors. Paths come from parsed URLs under a known extension's directory, and `Tests/LibWebView/TestExtensions.cpp`
+   checks that `..` segments, percent-encoded or not, absolute paths and symbolic links cannot leave it. The tests
+   found that a web page could get past the web-accessible check with an encoded slash: with `sub/*` web accessible,
+   `sub/..%2fpage.html` opened `page.html`. The decoded path is now resolved before it is checked or opened.
 
 10. **Storage, history and bookmarks.** `storage.json` is plain JSON in the profile directory, which is the same as
     Chrome's unencrypted extension storage. The Hub opens its own connection to the history database, which adds
@@ -244,7 +246,7 @@ extension's privileges. The three high-severity items below are fixed, and the f
 3. ~~Enforce `permissions` and `host_permissions` (item 3).~~ Done.
 4. ~~Check `web_accessible_resources` `matches`, and limit the CSP bypass to web-accessible resources (items 4 and
    5).~~ Done.
-5. Add tests for path traversal in `open_extension_file` (item 9).
+5. ~~Add tests for path traversal in `open_extension_file` (item 9).~~ Done.
 
 ---
 
