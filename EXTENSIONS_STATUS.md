@@ -45,7 +45,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `f01bd5cdd96` | `tabs.update({pinned})` pins and unpins tabs (Vimium's pin toggle); `tabs.onUpdated` tells of pin changes and `tabs.query` filters by `pinned`. |
 | `5b56f978882` | `tabs.onMoved`, for moves by extensions and by the user, worked out from the tab strip order the UI reports. |
 | `2bf3d16bf1c` | `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`; the UI reports what may be reopened (`recently_closed_changed`). |
-| (this branch) | `runtime.connect`, `tabs.connect` and ports, relayed by the browser process between the two ends it recorded. |
+| `6454eb37f56` | `runtime.connect`, `tabs.connect` and ports, relayed by the browser process between the two ends it recorded. |
 | `7be35cc1f1d` | `about:extensions` has an Install from File… button for `.crx` (CRX3, signatures checked) and `.zip` files, unpacked into `<profile data>/Extensions/Packed/<id>/`. A manifest `key` now gives the key's ID, so a `.crx` keeps Chromium's ID. |
 
 ### Where the code lives
