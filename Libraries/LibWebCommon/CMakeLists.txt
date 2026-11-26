@@ -6,6 +6,7 @@ set(SOURCES
     CSS/StyleSheetIdentifier.cpp
     CSS/SystemColor.cpp
     Extensions/MatchPattern.cpp
+    Extensions/WebAccessibleResources.cpp
     Fetch/Infrastructure/DataURL.cpp
     Fetch/Infrastructure/HTTP/Statuses.cpp
     Fetch/Infrastructure/URL.cpp

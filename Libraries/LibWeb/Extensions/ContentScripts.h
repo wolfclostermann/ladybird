@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/Error.h>
+#include <AK/JsonObject.h>
 #include <AK/String.h>
 #include <AK/Utf16String.h>
 #include <AK/Vector.h>
@@ -48,6 +49,7 @@ struct Extension {
     String id;
     // The manifest, as JSON with its comments taken out, for chrome.runtime.getManifest().
     String manifest_json;
+    JsonObject manifest;
     Vector<ContentScript> content_scripts;
 };
 
@@ -59,10 +61,10 @@ WEB_API bool has_extensions();
 // Policy does not govern what such a script does to the DOM: the styles it adds and the HTML it sets.
 WEB_API bool is_running_in_an_isolated_world(JS::VM&);
 
-// Whether a page's Content Security Policy leaves loads of url alone. As in Chromium and Firefox, a page's policy does
-// not govern the resources of extensions, which inject their own frames and styles into it. Which of its resources an
-// extension lets pages load is up to the extension.
-WEB_API bool url_bypasses_content_security_policy(URL::URL const&);
+// Whether a page's Content Security Policy leaves a request alone. As in Chromium and Firefox, a page's policy does not
+// govern the resources that extensions make web accessible, which they inject into it as frames and styles. Only those
+// the extension lets the request's origin load are left alone; the UI process refuses the rest anyway.
+WEB_API bool request_bypasses_content_security_policy(Fetch::Infrastructure::Request const&);
 
 // Runs the content scripts of document that are to run at run_at, and those of the earlier points that have not run yet.
 void run_content_scripts(DOM::Document&, RunAt);

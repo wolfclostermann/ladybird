@@ -16,6 +16,7 @@
 #include <LibJS/Runtime/VM.h>
 #include <LibJS/ScriptCompilation.h>
 #include <LibJS/SourceCode.h>
+#include <LibURL/Origin.h>
 #include <LibURL/URL.h>
 #include <LibWeb/Bindings/HostDefined.h>
 #include <LibWeb/Bindings/Intrinsics.h>
@@ -25,6 +26,8 @@
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/Extensions/ExtensionContext.h>
+#include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
+#include <LibWebCommon/Extensions/WebAccessibleResources.h>
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
@@ -44,9 +47,30 @@ static Vector<Extension>& extensions()
     return extensions;
 }
 
-bool url_bypasses_content_security_policy(URL::URL const& url)
+bool request_bypasses_content_security_policy(Fetch::Infrastructure::Request const& request)
 {
-    return url.scheme() == "chrome-extension"sv && has_extensions();
+    auto const& url = request.current_url();
+    if (url.scheme() != "chrome-extension"sv || !has_extensions())
+        return false;
+
+    auto id = url.serialized_host();
+    Extension const* extension = nullptr;
+    for (auto const& candidate : extensions()) {
+        if (candidate.id == id)
+            extension = &candidate;
+    }
+    if (!extension)
+        return false;
+
+    // NB: A navigation request's origin is still "client" when the policy is asked about it.
+    Optional<URL::Origin> requesting_origin;
+    if (auto const* origin = request.origin().get_pointer<URL::Origin>())
+        requesting_origin = *origin;
+    else if (auto const& client = request.client_snapshot())
+        requesting_origin = client->origin;
+
+    auto path = URL::percent_decode(url.serialize_path());
+    return is_web_accessible_resource(extension->manifest, path.view().trim("/"sv, TrimMode::Left), requesting_origin);
 }
 
 bool has_extensions()
@@ -101,6 +125,8 @@ ErrorOr<void> set_extensions_from_json(StringView json)
         Extension extension;
         extension.id = extension_object.get_string("id"sv).value_or({});
         extension.manifest_json = extension_object.get_string("manifest"sv).value_or("{}"_string);
+        if (auto manifest = JsonParser::parse(extension.manifest_json); !manifest.is_error() && manifest.value().is_object())
+            extension.manifest = manifest.value().as_object();
 
         if (auto content_scripts = extension_object.get_array("content_scripts"sv); content_scripts.has_value()) {
             for (auto const& content_script_value : content_scripts->values()) {
