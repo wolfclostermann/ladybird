@@ -382,7 +382,10 @@ bool is_web_accessible(LoadedExtension const& extension, StringView path, Option
 
 ErrorOr<IPC::File> open_extension_file(LoadedExtension const& extension, StringView url_path, ExtensionFileRequester requester, Optional<URL::Origin> const& requesting_origin)
 {
-    auto path = URL::percent_decode(url_path);
+    // NB: A URL's path keeps the dot segments it spells with percent-encoded slashes, like "sub/..%2fsecret.html", so
+    //     the path is resolved once decoded, before it is checked against the web-accessible resources or opened. It
+    //     cannot rise above the extension's root.
+    auto path = LexicalPath::canonicalized_path(ByteString::formatted("/{}", URL::percent_decode(url_path)));
     auto relative_path = path.view().trim("/"sv, TrimMode::Left);
 
     if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path, requesting_origin))

@@ -7,6 +7,7 @@
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonParser.h>
+#include <AK/LexicalPath.h>
 #include <AK/StringBuilder.h>
 #include <AK/Utf16StringBuilder.h>
 #include <LibGC/Heap.h>
@@ -69,7 +70,8 @@ bool request_bypasses_content_security_policy(Fetch::Infrastructure::Request con
     else if (auto const& client = request.client_snapshot())
         requesting_origin = client->origin;
 
-    auto path = URL::percent_decode(url.serialize_path());
+    // NB: As the UI process does, the path is resolved once decoded, for the dot segments of "sub/..%2fpage.html".
+    auto path = LexicalPath::canonicalized_path(ByteString::formatted("/{}", URL::percent_decode(url.serialize_path())));
     return is_web_accessible_resource(extension->manifest, path.view().trim("/"sv, TrimMode::Left), requesting_origin);
 }
 
