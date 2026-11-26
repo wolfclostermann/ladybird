@@ -159,7 +159,7 @@ feature is the realistic assumption.
 **Short answer:** with no extension loaded, very little changes. Almost every new path checks `has_extensions()` or
 returns early. **With an extension loaded, there are real gaps**, several of which matter even if you trust the
 extension, because they let a *compromised web content process* or a *malicious web page* take advantage of the
-extension's privileges. The three high-severity items below are fixed, and the first medium one; the rest remain.
+extension's privileges. The three high-severity items below are fixed, and the first two medium ones; the rest remain.
 
 ### High
 
@@ -202,12 +202,11 @@ extension's privileges. The three high-severity items below are fixed, and the f
    origin (a sandboxed frame) matches nothing, where Chromium goes by the origin it came from; and a process that has
    hosted documents of several sites (only without site isolation) is believed for any origin.
 
-5. **CSP bypass for all `chrome-extension:` URLs.** (`Libraries/LibWeb/Extensions/ContentScripts.cpp:45`.)
-   Chromium and Firefox do the same for resources an extension injects, so this matches other browsers. But here
-   the bypass covers *any* `chrome-extension:` URL once any extension is loaded, not only web-accessible resources or
-   loads made by the extension. The practical risk is limited because those URLs can only serve files that belong to
-   loaded extensions, but combined with item 4 it means a page's CSP no longer restricts what extension content can
-   be embedded into it.
+5. **Fixed: CSP bypass for all `chrome-extension:` URLs.** A page's Content Security Policy now leaves alone only
+   requests for files of a loaded extension that it makes web accessible to the request's origin
+   (`Extensions::request_bypasses_content_security_policy`), by the same rule the UI process applies
+   (`Web::Extensions::is_web_accessible_resource` in LibWebCommon). Chromium and Firefox exempt extension resources in
+   the same way. The policy governs every other `chrome-extension:` load.
 
 6. **`chrome-extension:` origins are treated as secure contexts.** This is correct and matches other browsers, but
    it means anything running at that origin (including in a shared process, item 2) gets the powerful APIs that
@@ -243,8 +242,8 @@ extension's privileges. The three high-severity items below are fixed, and the f
 2. ~~Run extension frames and background pages in their own WebContent processes (item 2).~~ Done. This also
    tightens items 5 and 6.
 3. ~~Enforce `permissions` and `host_permissions` (item 3).~~ Done.
-4. ~~Check `web_accessible_resources` `matches` (item 4).~~ Done. Limit the CSP bypass to web-accessible resources or
-   loads started by the extension (item 5).
+4. ~~Check `web_accessible_resources` `matches`, and limit the CSP bypass to web-accessible resources (items 4 and
+   5).~~ Done.
 5. Add tests for path traversal in `open_extension_file` (item 9).
 
 ---
