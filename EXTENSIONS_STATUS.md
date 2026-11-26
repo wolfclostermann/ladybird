@@ -119,10 +119,13 @@ All fixed. `TODO.md` is the live checklist.
 - What an extension stored stays in `<profile data>/Extensions/<id>/` when Ladybird stops being started with its
   `--load-extension` option, so its settings are there if the option comes back. Nothing tidies up those folders;
   only Remove deletes one.
-- Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
-  crowd the toolbar. Right-clicking the button offers Options, Turn Off, Remove from Ladybird… and Manage
-  Extensions. `action.openPopup` is not implemented, and the button is not shown in the sidebar layouts' collapsed
-  rail.
+- As in Chromium, extensions with an action are listed in the extensions menu (puzzle-piece button), and only the
+  ones the user pins get a toolbar button; new extensions start unpinned. Pins and their order are kept in
+  `extensions.json` (`"pinned"`). Pinned buttons cannot be reordered by dragging yet. Right-clicking a button (or ⋮
+  in the menu) offers Options, Pin/Unpin, Turn Off, Remove from Ladybird… and Manage Extensions. The popup of an
+  unpinned extension hangs from the puzzle-piece button (Chromium pops the icon out temporarily instead).
+  `action.openPopup` opens the popup in the active tab and resolves before it has opened. The buttons are not shown
+  in the sidebar layouts' collapsed rail.
 - Packed extensions install with Install from File…, but only CRX3 files (CRX2 is refused, as in current Chromium)
   and zip archives without ZIP64, encryption or compression other than deflate. Packed extensions are never updated;
   installing a newer file replaces the old one. There is no store, so Chromium's requirement of a Web Store

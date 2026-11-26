@@ -111,6 +111,12 @@ public:
     ErrorOr<void> remove_extension(StringView id);
     // Opens the options page of an enabled extension in a new tab, if it has one.
     void open_extension_options_page(StringView id);
+    // The extensions whose toolbar buttons the user pinned, in the order the buttons show. The others are reached from
+    // the extensions menu, as in Chromium.
+    Vector<String> const& pinned_extension_ids() const { return m_pinned_extension_ids; }
+    bool is_extension_pinned(StringView id) const;
+    // Pins an extension's toolbar button, after the ones pinned before it, or unpins it, for this run and later ones.
+    void set_extension_pinned(StringView id, bool pinned);
     // Loads an enabled extension afresh from its folder, as after its files changed, and restarts it.
     ErrorOr<void> reload_extension(StringView id);
     // Tries again to load an extension that could not be loaded from a folder.
@@ -731,6 +737,7 @@ private:
     // The IDs of the extensions the user turned off, and the folders of those they installed, kept in the profile.
     HashTable<String> m_disabled_extension_ids;
     Vector<ByteString> m_installed_extension_paths;
+    Vector<String> m_pinned_extension_ids;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

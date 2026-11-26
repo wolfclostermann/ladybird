@@ -298,6 +298,11 @@ static constexpr auto IMAGE_ICON_PATH = "M2.5 2.5h11a1 1 0 0 1 1 1v9a1 1 0 0 1-1
 static constexpr auto FOLDER_ICON_PATH = "M2.5 2.5h3l2 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z"sv;
 static constexpr auto FEEDBACK_ICON_PATH = "M4 1.5h7a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5H7l-2.5 2.5v-2.5H4a2.5 2.5 0 0 1-2.5-2.5V4a2.5 2.5 0 0 1 2.5-2.5zM7.5 4.25v1.6M7.5 8.75v.01"sv;
 static constexpr auto EXTERNAL_LINK_ICON_PATH = "M6.5 2.5h-3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3M9.5 1.5h4v4M13.5 1.5l-6 6"sv;
+// A puzzle piece, for extensions, as in Chromium.
+static constexpr auto EXTENSIONS_ICON_PATH = "M2.5 4.5h3v-1a1.5 1.5 0 0 1 3 0v1h3v3h1a1.5 1.5 0 0 1 0 3h-1v3h-9z"sv;
+// A pushpin, whose head is filled once something is pinned.
+static constexpr auto PIN_ICON_PATH = "M6.5 2.5v4l-2.5 3h8l-2.5-3v-4zM5.5 2.5h5M8 9.5v4"sv;
+static constexpr auto MORE_ICON_PATH = "M8 3.5v.01M8 8v.01M8 12.5v.01"sv;
 
 // The window controls of Windows and Linux are drawn on a 10 px box in the middle of the icon.
 static constexpr auto WINDOW_MINIMIZE_ICON_PATH = "M3.5 8.5h9"sv;
@@ -386,6 +391,13 @@ static StringView chrome_icon_path(ChromeIcon icon)
         return FEEDBACK_ICON_PATH;
     case ChromeIcon::ExternalLink:
         return EXTERNAL_LINK_ICON_PATH;
+    case ChromeIcon::Extensions:
+        return EXTENSIONS_ICON_PATH;
+    case ChromeIcon::Pin:
+    case ChromeIcon::PinFilled:
+        return PIN_ICON_PATH;
+    case ChromeIcon::More:
+        return MORE_ICON_PATH;
     case ChromeIcon::ZoomOut:
         return ZOOM_OUT_ICON_PATH;
     case ChromeIcon::Sidebar:
@@ -739,7 +751,7 @@ static QPixmap create_chrome_icon_pixmap(ChromeIcon icon, QPainterPath const& pa
     return create_chrome_icon_pixmap(color, device_pixel_ratio, logical_size, [&](qreal scale, int stroke_width, int canvas_size) {
         auto fitted_path = fit_icon_path_to_pixels(path, scale, stroke_width, canvas_size);
         auto outline = icon_outline(fitted_path, stroke_width);
-        if (icon == ChromeIcon::StarFilled)
+        if (icon == ChromeIcon::StarFilled || icon == ChromeIcon::PinFilled)
             outline.addPath(fitted_path);
         return outline;
     });

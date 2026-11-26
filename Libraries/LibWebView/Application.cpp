@@ -944,6 +944,7 @@ void Application::load_extensions()
     // NB: The extensions' own folders are named after their IDs, which are never this file's name.
     m_disabled_extension_ids.clear();
     m_installed_extension_paths.clear();
+    m_pinned_extension_ids.clear();
     if (auto state = read_json_file(extensions_state_path()); !state.is_error()) {
         if (auto disabled = state.value().get_array("disabled"sv); disabled.has_value()) {
             disabled->for_each([&](JsonValue const& id) {
@@ -955,6 +956,12 @@ void Application::load_extensions()
             unpacked->for_each([&](JsonValue const& path) {
                 if (path.is_string())
                     m_installed_extension_paths.append(path.as_string().to_byte_string());
+            });
+        }
+        if (auto pinned = state.value().get_array("pinned"sv); pinned.has_value()) {
+            pinned->for_each([&](JsonValue const& id) {
+                if (id.is_string() && !m_pinned_extension_ids.contains_slow(id.as_string()))
+                    m_pinned_extension_ids.append(id.as_string());
             });
         }
     }
@@ -1003,11 +1010,17 @@ void Application::save_extensions_state()
     for (auto const& path : m_installed_extension_paths)
         unpacked.must_append(String::from_utf8_with_replacement_character(path));
 
+    // NB: Unlike the others, this list keeps its order, which is the order of the pinned buttons.
+    JsonArray pinned;
+    for (auto const& id : m_pinned_extension_ids)
+        pinned.must_append(id);
+
     JsonObject state;
     state.set("disabled"sv, move(disabled));
     state.set("unpacked"sv, move(unpacked));
+    state.set("pinned"sv, move(pinned));
     if (auto result = write_json_file(extensions_state_path(), state); result.is_error())
-        warnln("Unable to save which extensions are turned off: {}", result.error());
+        warnln("Unable to save the state of extensions: {}", result.error());
 }
 
 ErrorOr<void> Application::set_extension_enabled(StringView id, bool enabled)
@@ -1127,6 +1140,7 @@ ErrorOr<void> Application::remove_extension(StringView id)
     m_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
     m_installed_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
     m_disabled_extension_ids.remove(removed->id);
+    m_pinned_extension_ids.remove_all_matching([&](String const& pinned_id) { return pinned_id == removed->id; });
     save_extensions_state();
 
     // A packed extension's unpacked files go too, as nothing else would ever load them.
@@ -1242,6 +1256,28 @@ void Application::open_extension_options_page(StringView id)
     if (!url.has_value())
         return;
     open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes);
+}
+
+bool Application::is_extension_pinned(StringView id) const
+{
+    return any_of(m_pinned_extension_ids, [&](String const& pinned_id) { return pinned_id == id; });
+}
+
+void Application::set_extension_pinned(StringView id, bool pinned)
+{
+    if (pinned == is_extension_pinned(id))
+        return;
+    // Only an extension the user has can be pinned, though one that is turned off stays pinned.
+    if (pinned) {
+        auto is_it = [&](LoadedExtension const& extension) { return extension.id == id; };
+        if (!any_of(m_extensions, is_it) && !any_of(m_disabled_extensions, is_it))
+            return;
+        m_pinned_extension_ids.append(MUST(String::from_utf8(id)));
+    } else {
+        m_pinned_extension_ids.remove_all_matching([&](String const& pinned_id) { return pinned_id == id; });
+    }
+    save_extensions_state();
+    extension_actions_changed();
 }
 
 LoadedExtension const* Application::extension_with_id(StringView id) const

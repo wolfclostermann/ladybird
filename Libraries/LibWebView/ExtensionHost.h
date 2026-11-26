@@ -109,6 +109,7 @@ private:
     void history_call(StringView function, JsonArray const& arguments, Completion);
     void search_query(WebContentPage&, JsonArray const& arguments, Completion);
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
+    CallResult open_action_popup(LoadedExtension const&, JsonValue const& options);
     HistoryStore* history_store();
 
     void inject(ViewImplementation&, LoadedExtension const&, JsonObject const& target, JsonObject const& details, Function<void(JsonArray)> on_complete);

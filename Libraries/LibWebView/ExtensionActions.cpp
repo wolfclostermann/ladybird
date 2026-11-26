@@ -10,6 +10,7 @@
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/ImageFormats/PNGWriter.h>
 #include <LibURL/Parser.h>
+#include <LibWebView/Application.h>
 #include <LibWebView/ExtensionActions.h>
 #include <LibWebView/Extensions.h>
 
@@ -284,7 +285,7 @@ ExtensionHost::CallResult ExtensionActions::call(LoadedExtension const& extensio
     // https://developer.chrome.com/docs/extensions/reference/api/action#method-getUserSettings
     if (function == "getUserSettings"sv) {
         JsonObject settings;
-        settings.set("isOnToolbar"sv, action_of(extension).has_value());
+        settings.set("isOnToolbar"sv, Application::the().is_extension_pinned(extension.id));
         return result(settings);
     }
 
@@ -335,10 +336,24 @@ static JsonObject properties_to_json(auto const& properties)
     return object;
 }
 
-String ExtensionActions::serialized(ReadonlySpan<LoadedExtension> extensions)
+String ExtensionActions::serialized(ReadonlySpan<LoadedExtension> extensions, ReadonlySpan<String> pinned_extension_ids)
 {
-    JsonArray buttons;
+    Vector<LoadedExtension const*> ordered;
+    for (auto const& id : pinned_extension_ids) {
+        for (auto const& extension : extensions) {
+            if (extension.id == id)
+                ordered.append(&extension);
+        }
+    }
+    auto pinned_count = ordered.size();
     for (auto const& extension : extensions) {
+        if (!ordered.contains_slow(&extension))
+            ordered.append(&extension);
+    }
+
+    JsonArray buttons;
+    for (size_t i = 0; i < ordered.size(); ++i) {
+        auto const& extension = *ordered[i];
         if (!action_of(extension).has_value())
             continue;
         auto& state = state_for(extension);
@@ -351,6 +366,7 @@ String ExtensionActions::serialized(ReadonlySpan<LoadedExtension> extensions)
         button.set("extensionId"sv, extension.id);
         button.set("name"sv, extension.name);
         button.set("hasOptionsPage"sv, options_page_path(extension).has_value());
+        button.set("pinned"sv, i < pinned_count);
         button.set("defaults"sv, properties_to_json(state.defaults));
         button.set("tabs"sv, move(tabs));
         buttons.must_append(move(button));

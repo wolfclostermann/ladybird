@@ -188,6 +188,11 @@ void ConnectionFromUI::turn_off_extension(String extension_id)
         warnln("Unable to turn off extension {}: {}", extension_id, result.error());
 }
 
+void ConnectionFromUI::set_extension_pinned(String extension_id, bool pinned)
+{
+    Application::the().set_extension_pinned(extension_id, pinned);
+}
+
 void ConnectionFromUI::remove_extension(String extension_id)
 {
     if (auto result = Application::the().remove_extension(extension_id); result.is_error())

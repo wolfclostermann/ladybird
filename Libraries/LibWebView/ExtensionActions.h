@@ -52,9 +52,9 @@ public:
     // Forgets what the action API set of an extension's button, as the extension was turned off or removed.
     void forget(String const& extension_id) { m_states.remove(extension_id); }
 
-    // The buttons of the extensions that have one, as JSON for the UI: for each, what it shows in every tab, and what
-    // it shows instead in particular tabs.
-    String serialized(ReadonlySpan<LoadedExtension>);
+    // The buttons of the extensions that have one, as JSON for the UI: for each, what it shows in every tab, what it
+    // shows instead in particular tabs, and whether it is pinned. The pinned buttons come first, in the order given.
+    String serialized(ReadonlySpan<LoadedExtension>, ReadonlySpan<String> pinned_extension_ids);
 
     // Called whenever what a button shows changes, once for each change or run of changes.
     Function<void()> on_change;

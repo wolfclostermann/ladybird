@@ -32,6 +32,7 @@ class BrowserWindow;
 class DownloadsButton;
 class ExtensionActionButton;
 class ExtensionPopup;
+class ExtensionsPopover;
 class DownloadsPopover;
 class FeedbackButton;
 class FeedbackPopover;
@@ -41,6 +42,7 @@ class Popover;
 class ReloadButton;
 class FieldPanel;
 class Tab;
+class ToolbarButton;
 
 enum class ToolbarArrangement : u8 {
     // One row above the page.
@@ -110,10 +112,15 @@ public:
     // Shows the buttons of extensions as the application describes them, as they look for the tab that is shown.
     void update_extension_buttons();
     void show_extension_popup(String const& extension_id, Tab&, URL::URL const&);
-    void show_extension_button_menu(ExtensionActionButton&, QPoint global_position);
+    void show_extension_button_menu(String const& extension_id, QPoint global_position);
+    void show_extensions_popover();
     void extension_popup_did_request_size(u64 view_id, Gfx::IntSize);
 
 private:
+    ExtensionActionButton* extension_button(String const& extension_id) const;
+    void update_extensions_popover();
+    void click_extension_button(String const& extension_id);
+
     virtual bool event(QEvent*) override;
     virtual bool eventFilter(QObject*, QEvent*) override;
 
@@ -197,6 +204,9 @@ private:
     QWidget* m_extension_buttons_container { nullptr };
     Vector<ExtensionActionButton*> m_extension_buttons;
     QPointer<ExtensionPopup> m_extension_popup;
+    // The extensions menu, which holds the buttons that are not pinned to the toolbar.
+    ToolbarButton* m_extensions_menu_button { nullptr };
+    QPointer<ExtensionsPopover> m_extensions_popover;
 
     FeedbackButton* m_feedback_button { nullptr };
     QPointer<FeedbackPopover> m_feedback_popover;

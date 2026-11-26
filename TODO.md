@@ -42,7 +42,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       signatures are checked, but there is no store or update channel.
 - [x] A context menu on toolbar buttons: Options, Turn Off, Remove from Ladybird… (with a confirmation), Manage
       Extensions. Open about:extensions pages update when an extension changes elsewhere.
-- [ ] An overflow menu or pinning for toolbar buttons; `action.openPopup`.
+- [x] An extensions menu (puzzle-piece button) listing every extension with a toolbar button, with pinning, as in
+      Chromium. Buttons are unpinned by default; pins and their order persist. `action.openPopup` and
+      `action.getUserSettings().isOnToolbar` work. No drag-to-reorder of pinned buttons yet.
 
 ## Housekeeping
 

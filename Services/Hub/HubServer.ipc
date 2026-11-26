@@ -244,6 +244,7 @@ endpoint HubServer
     open_extension_options_page(String extension_id) =|
     turn_off_extension(String extension_id) =|
     remove_extension(String extension_id) =|
+    set_extension_pinned(String extension_id, bool pinned) =|
     answer_clipboard_text(u64 request_id, Utf16String text) =|
     answer_clipboard_item(u64 request_id, Web::Clipboard::SystemClipboardItem item) =|
     answer_download_path(u64 request_id, Optional<ByteString> path) =|

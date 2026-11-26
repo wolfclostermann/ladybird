@@ -10,6 +10,7 @@
 #include <AK/Base64.h>
 #include <AK/GenericShorthands.h>
 #include <AK/JsonObject.h>
+#include <AK/QuickSort.h>
 #include <AK/kmalloc.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/CrashReportOutbox.h>
@@ -22,6 +23,7 @@
 #include <UI/Qt/DownloadPresentation.h>
 #include <UI/Qt/ElidedLabel.h>
 #include <UI/Qt/ExtensionPopup.h>
+#include <UI/Qt/ExtensionsPopover.h>
 #include <UI/Qt/FeedbackPopover.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/LadybirdButton.h>
@@ -738,10 +740,12 @@ public:
     // The extension's name and whether it has an options page, for the button's menu.
     QString const& extension_name() const { return m_extension_name; }
     bool has_options_page() const { return m_has_options_page; }
-    void set_extension_details(QString name, bool has_options_page)
+    bool is_pinned() const { return m_is_pinned; }
+    void set_extension_details(QString name, bool has_options_page, bool is_pinned)
     {
         m_extension_name = AK::move(name);
         m_has_options_page = has_options_page;
+        m_is_pinned = is_pinned;
     }
 
     void set_badge(QString text, QColor background, QColor foreground)
@@ -789,6 +793,7 @@ private:
     String m_extension_id;
     QString m_extension_name;
     bool m_has_options_page { false };
+    bool m_is_pinned { false };
     QString m_badge_text;
     QColor m_badge_background;
     QColor m_badge_foreground;
@@ -1328,6 +1333,23 @@ WindowToolbar::WindowToolbar(WebView::IsPrivate is_private, QWidget* parent)
     }
     m_extension_buttons_container->hide();
 
+    m_extensions_menu_button = new ToolbarButton(m_toolbar);
+    m_extensions_menu_button->setObjectName("LadybirdExtensionsMenuButton");
+    m_extensions_menu_button->setToolTip("Extensions");
+    m_extensions_menu_button->setAccessibleName("Extensions");
+    // NB: The button stays checked while the menu, or the popup of an extension that is not pinned, is open.
+    m_extensions_menu_button->setCheckable(true);
+    m_extensions_menu_button->setAutoRaise(true);
+    m_extensions_menu_button->setFocusPolicy(Qt::NoFocus);
+    m_extensions_menu_button->setIconSize({ TOOLBAR_ICON_SIZE, TOOLBAR_ICON_SIZE });
+    m_extensions_menu_button->setFixedSize(TOOLBAR_BUTTON_SIZE);
+    m_extensions_menu_button->setAttribute(Qt::WA_LayoutUsesWidgetRect);
+    m_extensions_menu_button->hide();
+    QObject::connect(m_extensions_menu_button, &QToolButton::clicked, this, [this] {
+        m_extensions_menu_button->setChecked(m_extensions_popover && m_extensions_popover->isVisible());
+        show_extensions_popover();
+    });
+
     if constexpr (has_feedback_button) {
         m_feedback_button = new FeedbackButton(m_toolbar);
         QObject::connect(m_feedback_button, &QToolButton::clicked, this, [this] {
@@ -1535,6 +1557,7 @@ void WindowToolbar::lay_out_as_row()
     m_navigation_buttons->show();
     toolbar_layout->addWidget(&field_slot(), 1);
     toolbar_layout->addWidget(m_extension_buttons_container, 0, Qt::AlignVCenter);
+    toolbar_layout->addWidget(m_extensions_menu_button, 0, Qt::AlignVCenter);
     toolbar_layout->addWidget(m_downloads_button, 0, Qt::AlignVCenter);
     if (m_feedback_button)
         toolbar_layout->addWidget(m_feedback_button, 0, Qt::AlignVCenter);
@@ -1574,6 +1597,7 @@ void WindowToolbar::lay_out_in_sidebar()
 
     auto* footer_layout = static_cast<QBoxLayout*>(m_sidebar_footer->layout());
     footer_layout->addWidget(m_extension_buttons_container, 0, Qt::AlignVCenter);
+    footer_layout->addWidget(m_extensions_menu_button, 0, Qt::AlignVCenter);
     footer_layout->addWidget(m_downloads_button, 0, Qt::AlignVCenter);
     if (m_feedback_button)
         footer_layout->addWidget(m_feedback_button, 0, Qt::AlignVCenter);
@@ -2127,6 +2151,8 @@ void WindowToolbar::update_chrome_style()
         m_downloads_popover->update_chrome_style(palette());
     if (m_feedback_popover)
         m_feedback_popover->update_chrome_style(palette());
+    if (m_extensions_popover)
+        m_extensions_popover->update_chrome_style(palette());
     m_is_updating_chrome_style = false;
 }
 
@@ -2140,6 +2166,7 @@ void WindowToolbar::recreate_icons()
     m_downloads_button->setIcon(create_chrome_icon(ChromeIcon::Download, Theme::chrome_palette(*this), activity, TOOLBAR_ICON_SIZE));
     if (m_feedback_button)
         m_feedback_button->setIcon(create_chrome_icon(ChromeIcon::Feedback, Theme::chrome_palette(*this), activity, TOOLBAR_ICON_SIZE));
+    m_extensions_menu_button->setIcon(create_chrome_icon(ChromeIcon::Extensions, Theme::chrome_palette(*this), activity, TOOLBAR_ICON_SIZE));
     update_window_control_icons();
 }
 
@@ -2408,17 +2435,12 @@ void WindowToolbar::update_extension_buttons()
             m_extension_buttons_container->layout()->addWidget(button);
             QObject::connect(button, &QToolButton::clicked, this, [this, button] {
                 // NB: The button is only checked while its popup is open.
-                auto popup_was_open = m_extension_popup && m_extension_popup->extension_id() == button->extension_id();
-                if (m_extension_popup)
-                    m_extension_popup->close();
                 button->setChecked(false);
-                if (popup_was_open || !m_tab || !m_tab->is_loaded())
-                    return;
-                HubConnection::the().async_extension_action_clicked(button->extension_id(), m_tab->view().view_id());
+                click_extension_button(button->extension_id());
             });
             button->setContextMenuPolicy(Qt::CustomContextMenu);
             QObject::connect(button, &QWidget::customContextMenuRequested, this, [this, button](QPoint const& position) {
-                show_extension_button_menu(*button, button->mapToGlobal(position));
+                show_extension_button_menu(button->extension_id(), button->mapToGlobal(position));
             });
             m_extension_buttons.append(button);
         }
@@ -2463,7 +2485,9 @@ void WindowToolbar::update_extension_buttons()
         auto enabled = get("enabled"sv).has_value() && get("enabled"sv)->is_bool() ? get("enabled"sv)->as_bool() : true;
 
         auto* button = m_extension_buttons[i];
-        button->set_extension_details(qstring_from_ak_string(name), action.get_bool("hasOptionsPage"sv).value_or(false));
+        auto pinned = action.get_bool("pinned"sv).value_or(false);
+        button->set_extension_details(qstring_from_ak_string(name), action.get_bool("hasOptionsPage"sv).value_or(false), pinned);
+        button->setVisible(pinned);
         button->setIcon(extension_icon(string("icon"sv), name, palette));
         button->setToolTip(qstring_from_ak_string(title));
         button->setAccessibleName(qstring_from_ak_string(title));
@@ -2473,25 +2497,111 @@ void WindowToolbar::update_extension_buttons()
             color_from_json(array("badgeTextColor"sv), Qt::white));
     }
 
-    m_extension_buttons_container->setVisible(!m_extension_buttons.is_empty());
+    m_extension_buttons_container->setVisible(any_of(m_extension_buttons, [](auto* button) { return button->is_pinned(); }));
+    m_extensions_menu_button->setVisible(!m_extension_buttons.is_empty());
+    if (m_extension_buttons.is_empty() && m_extensions_popover)
+        m_extensions_popover->close();
+    update_extensions_popover();
+}
+
+ExtensionActionButton* WindowToolbar::extension_button(String const& extension_id) const
+{
+    for (auto* button : m_extension_buttons) {
+        if (button->extension_id() == extension_id)
+            return button;
+    }
+    return nullptr;
+}
+
+// A click on an extension's button, or on its row in the extensions menu, closes its popup if it is open. Otherwise the
+// extension's button opens its popup or tells the extension of the click.
+void WindowToolbar::click_extension_button(String const& extension_id)
+{
+    auto popup_was_open = m_extension_popup && m_extension_popup->extension_id() == extension_id;
+    if (m_extension_popup)
+        m_extension_popup->close();
+    if (popup_was_open || !m_tab || !m_tab->is_loaded())
+        return;
+    HubConnection::the().async_extension_action_clicked(extension_id, m_tab->view().view_id());
+}
+
+static Vector<ExtensionsPopover::Entry> extensions_popover_entries(ReadonlySpan<ExtensionActionButton*> buttons)
+{
+    Vector<ExtensionsPopover::Entry> entries;
+    for (auto* button : buttons) {
+        entries.append({
+            .extension_id = button->extension_id(),
+            .icon = button->icon(),
+            .name = button->extension_name(),
+            .title = button->toolTip(),
+            .enabled = button->isEnabled(),
+            .pinned = button->is_pinned(),
+        });
+    }
+    // Like Chromium's, the menu lists extensions by name.
+    quick_sort(entries, [](auto const& a, auto const& b) { return a.name.localeAwareCompare(b.name) < 0; });
+    return entries;
+}
+
+void WindowToolbar::show_extensions_popover()
+{
+    if (!m_extensions_popover) {
+        m_extensions_popover = new ExtensionsPopover(this);
+        m_extensions_popover->on_visibility_change = [this](bool visible) {
+            m_extensions_menu_button->setChecked(visible || (m_extension_popup && m_extension_popup->isVisible()));
+        };
+        m_extensions_popover->on_activate = [this](String const& extension_id) {
+            click_extension_button(extension_id);
+        };
+        m_extensions_popover->on_set_pinned = [](String const& extension_id, bool pinned) {
+            HubConnection::the().async_set_extension_pinned(extension_id, pinned);
+        };
+        m_extensions_popover->on_show_menu = [this](String const& extension_id, QPoint global_position) {
+            show_extension_button_menu(extension_id, global_position);
+        };
+        m_extensions_popover->on_manage_extensions = [this] {
+            if (m_tab)
+                m_tab->view().open_url_in_new_tab(URL::URL::about("extensions"sv), Web::HTML::ActivateTab::Yes);
+        };
+    }
+
+    m_extensions_popover->update_chrome_style(palette());
+    m_extensions_popover->set_entries(extensions_popover_entries(m_extension_buttons));
+    m_extensions_popover->show();
+    move_popover_to_button(*m_extensions_popover, *m_extensions_menu_button);
+    m_extensions_popover->raise();
+}
+
+void WindowToolbar::update_extensions_popover()
+{
+    if (!m_extensions_popover || !m_extensions_popover->isVisible())
+        return;
+    m_extensions_popover->set_entries(extensions_popover_entries(m_extension_buttons));
+    move_popover_to_button(*m_extensions_popover, *m_extensions_menu_button);
 }
 
 // The menu of an extension's toolbar button, which, as in Chromium, opens its options and manages it.
-void WindowToolbar::show_extension_button_menu(ExtensionActionButton& button, QPoint global_position)
+void WindowToolbar::show_extension_button_menu(String const& extension_id, QPoint global_position)
 {
-    auto extension_id = button.extension_id();
-    auto name = button.extension_name();
+    auto* button = extension_button(extension_id);
+    if (!button)
+        return;
+    auto name = button->extension_name();
+    auto is_pinned = button->is_pinned();
 
-    QMenu menu(&button);
+    QMenu menu(this);
     auto* title = menu.addAction(name);
     title->setEnabled(false);
     menu.addSeparator();
 
-    if (button.has_options_page()) {
+    if (button->has_options_page()) {
         QObject::connect(menu.addAction(QObject::tr("Options")), &QAction::triggered, this, [extension_id] {
             HubConnection::the().async_open_extension_options_page(extension_id);
         });
     }
+    QObject::connect(menu.addAction(is_pinned ? QObject::tr("Unpin") : QObject::tr("Pin")), &QAction::triggered, this, [extension_id, is_pinned] {
+        HubConnection::the().async_set_extension_pinned(extension_id, !is_pinned);
+    });
     QObject::connect(menu.addAction(QObject::tr("Turn Off")), &QAction::triggered, this, [extension_id] {
         HubConnection::the().async_turn_off_extension(extension_id);
     });
@@ -2521,29 +2631,31 @@ void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, U
     if (&tab != m_tab.data())
         return;
 
-    ExtensionActionButton* button = nullptr;
-    for (auto* candidate : m_extension_buttons) {
-        if (candidate->extension_id() == extension_id)
-            button = candidate;
-    }
-    if (!button || !button->isVisible())
+    // The popup hangs from the extension's button, or from the extensions menu's while the button is not pinned.
+    auto* extension_button = this->extension_button(extension_id);
+    if (!extension_button)
+        return;
+    QToolButton* anchor = extension_button->is_pinned() ? static_cast<QToolButton*>(extension_button) : m_extensions_menu_button;
+    if (!anchor->isVisible())
         return;
 
     if (m_extension_popup)
         m_extension_popup->close();
+    if (m_extensions_popover)
+        m_extensions_popover->close();
 
     auto* popup = new ExtensionPopup(this, extension_id, tab.view(), url);
     m_extension_popup = popup;
-    popup->on_visibility_change = [button = QPointer(button)](bool visible) {
-        if (button)
-            button->setChecked(visible);
+    popup->on_visibility_change = [anchor = QPointer(anchor)](bool visible) {
+        if (anchor)
+            anchor->setChecked(visible);
     };
-    popup->on_resize = [this, popup, button = QPointer(button)] {
-        if (button)
-            move_popover_to_button(*popup, *button);
+    popup->on_resize = [this, popup, anchor = QPointer(anchor)] {
+        if (anchor)
+            move_popover_to_button(*popup, *anchor);
     };
     popup->adjustSize();
-    move_popover_to_button(*popup, *button);
+    move_popover_to_button(*popup, *anchor);
     popup->show();
 }
 

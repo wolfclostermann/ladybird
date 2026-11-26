@@ -585,7 +585,7 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
     if (api.starts_with("action."sv) || api.starts_with("browserAction."sv)) {
         auto function = api.substring_view(api.find('.').value() + 1);
         if (function == "openPopup"sv)
-            return complete(error("chrome.action.openPopup is not implemented yet"sv));
+            return complete(open_action_popup(extension, argument(0)));
         return complete(m_actions->call(extension, base_url_for_paths(extension, context), function, arguments));
     }
 
@@ -2021,7 +2021,43 @@ void ExtensionHost::extension_did_unload(String const& extension_id)
 
 String ExtensionHost::serialized_actions()
 {
-    return m_actions->serialized(Application::the().extensions());
+    return m_actions->serialized(Application::the().extensions(), Application::the().pinned_extension_ids());
+}
+
+static Optional<URL::URL> action_popup_url(LoadedExtension const& extension, StringView popup)
+{
+    return URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension.id, popup.trim("/"sv, TrimMode::Left))));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/action#method-openPopup
+ExtensionHost::CallResult ExtensionHost::open_action_popup(LoadedExtension const& extension, JsonValue const& options)
+{
+    if (!action_of(extension).has_value())
+        return error("The extension has no action"sv);
+
+    // There is a single window, whose ID is 1.
+    if (options.is_object()) {
+        if (auto window_id = options.as_object().get("windowId"sv); window_id.has_value() && !window_id->is_null()) {
+            auto id = window_id->get_double_with_precision_loss();
+            if (!id.has_value() || (*id != 1 && *id != -2))
+                return error(MUST(String::formatted("No window with id: {}.", window_id->serialized())));
+        }
+    }
+
+    auto view = active_tab_view();
+    if (!view.has_value())
+        return error("Could not find an active browser window."sv);
+
+    auto click = m_actions->click(extension, view->view_id());
+    if (!click.popup.has_value())
+        return error("Extension does not have a popup on the active tab."sv);
+    auto url = action_popup_url(extension, *click.popup);
+    if (!url.has_value())
+        return error("Extension does not have a popup on the active tab."sv);
+
+    // NB: Unlike Chromium, the promise settles before the popup has opened, as the UI does not say when it has.
+    Application::the().show_extension_popup(extension.id, view->view_id(), *url);
+    return undefined_result();
 }
 
 void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
@@ -2043,7 +2079,7 @@ void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
         return;
 
     if (click.popup.has_value()) {
-        auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension->id, click.popup->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+        auto url = action_popup_url(*extension, *click.popup);
         if (url.has_value())
             Application::the().show_extension_popup(extension->id, view_id, *url);
         return;
