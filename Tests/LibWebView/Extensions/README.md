@@ -25,6 +25,8 @@ kept so that the checks can be repeated.
   - `port-ext`: `runtime.connect`, `tabs.connect` and ports between content scripts on example.com/.org, the
     background page and `page.html`: messages both ways, disconnects from either end, no receiver, navigation and
     closing the tab. Logs `PORT ...` lines.
+  - `tab-watch-ext`: for trying tab moves, pins and `chrome.sessions` by hand. Its popup lists recently closed tabs
+    with Restore buttons and shows tab events live, streamed from the background page over a port.
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
   - `csp-ext`: content scripts on a page with a strict CSP and Trusted Types (`sites/csp-site`, served by
     `tools/csp-server.py`).

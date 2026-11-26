@@ -1,0 +1,9 @@
+{
+    "manifest_version": 3,
+    "name": "Tab watch",
+    "version": "0.1",
+    "description": "Shows tab moves, pins and recently closed tabs, for trying these APIs by hand.",
+    "permissions": ["tabs", "sessions"],
+    "background": { "service_worker": "bg.js" },
+    "action": { "default_title": "Tab watch", "default_icon": "icon16.png", "default_popup": "popup.html" }
+}

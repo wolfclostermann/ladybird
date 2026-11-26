@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Tab watch</title>
+<style>
+    body { font: 13px system-ui, sans-serif; width: 380px; margin: 10px; }
+    h2 { font-size: 13px; margin: 10px 0 4px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { display: flex; gap: 6px; align-items: center; padding: 2px 0; }
+    li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #events li { color: #555; }
+    #status { color: #888; }
+</style>
+<h2>Recently closed (chrome.sessions)</h2>
+<ul id="closed"></ul>
+<h2>Events <span id="status">(connecting…)</span></h2>
+<ul id="events"></ul>
+<script src="popup.js"></script>
