@@ -567,6 +567,7 @@ private:
     ErrorOr<void> start_extension_background_page(LoadedExtension const&);
     ByteString extensions_state_path() const;
     ByteString extension_packages_path() const;
+    ErrorOr<LoadedExtension> load_extension_from(StringView path) const;
     void save_extensions_state();
     ByteString content_blocker_list_path(StringView identifier) const;
     ErrorOr<void> save_content_blocker_list(ByteString const& path, ReadonlyBytes);

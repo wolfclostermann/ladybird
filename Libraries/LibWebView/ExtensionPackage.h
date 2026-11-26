@@ -36,7 +36,9 @@ WEBVIEW_API ErrorOr<void> extract_zip(ReadonlyBytes, StringView directory);
 WEBVIEW_API String extension_id_for_public_key(ReadonlyBytes);
 
 // Unpacks a .crx or .zip file into a folder of its own within the given directory, and returns that folder. A .crx
-// file's key is written into its manifest as "key", so that the unpacked extension keeps the ID of the packed one.
+// file's key is written into its manifest as "key", so that the unpacked extension keeps the ID of the packed one. The
+// folder is named after that ID, or for a .zip archive after its path, and the browser takes a .zip's folder name as
+// its ID.
 // The folder replaces what was unpacked there before only once the new files load as an extension.
 WEBVIEW_API ErrorOr<ByteString> unpack_extension_package(StringView package_path, StringView packages_directory);
 

@@ -65,8 +65,9 @@ String strip_json_comments(StringView json)
 
 // https://chromium.googlesource.com/chromium/src/+/main/components/crx_file/id_util.cc
 // An ID is the first 16 bytes of a SHA-256 digest, written with the letters a to p for the hex digits 0 to f. It is
-// the digest of the manifest's "key" (a developer's public key, in base64) if it has one, else of the directory's path.
-static ErrorOr<String> extension_id_for(JsonObject const& manifest, StringView directory)
+// the digest of the manifest's "key" (a developer's public key, in base64) if it has one, else of the directory's path,
+// unless the caller knows the ID another way.
+static ErrorOr<String> extension_id_for(JsonObject const& manifest, StringView directory, Optional<String> const& id_without_key)
 {
     if (auto key = manifest.get("key"sv); key.has_value()) {
         if (!key->is_string())
@@ -76,6 +77,8 @@ static ErrorOr<String> extension_id_for(JsonObject const& manifest, StringView d
             return Error::from_string_literal("manifest.json has a \"key\" that is not valid base64");
         return extension_id_for_public_key(public_key.value());
     }
+    if (id_without_key.has_value())
+        return *id_without_key;
     return extension_id_for_public_key(directory.bytes());
 }
 
@@ -116,7 +119,7 @@ static JsonArray strings_as_json(Vector<String> const& strings)
     return array;
 }
 
-ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
+ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path, Optional<String> const& id_without_key)
 {
     auto directory = TRY(FileSystem::real_path(directory_path));
 
@@ -131,7 +134,7 @@ ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
         return Error::from_string_literal("manifest.json has no supported manifest_version");
 
     LoadedExtension extension;
-    extension.id = TRY(extension_id_for(manifest, directory));
+    extension.id = TRY(extension_id_for(manifest, directory, id_without_key));
     extension.name = manifest.get_string("name"sv).value_or(extension.id);
     extension.version = manifest.get_string("version"sv).value_or({});
     extension.directory = directory;

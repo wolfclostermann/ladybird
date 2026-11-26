@@ -441,8 +441,8 @@ ErrorOr<ByteString> unpack_extension_package(StringView package_path, StringView
         archive = crx->archive;
         folder_name = extension_id_for_public_key(crx->public_key);
     } else if (contents.bytes().starts_with("PK"sv.bytes())) {
-        // A zip archive has no key, so its folder (and so its ID) derives from the archive's path, which installing
-        // the same archive again keeps.
+        // A zip archive has no key, so its folder's name, which the browser takes as its ID, derives from the
+        // archive's path, which installing the same archive again keeps.
         folder_name = extension_id_for_public_key(real_package_path.bytes());
     } else {
         return Error::from_string_literal("Not a .crx or .zip file");

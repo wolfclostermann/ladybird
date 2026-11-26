@@ -924,6 +924,16 @@ bool Application::is_unpacked_extension_package(ByteString const& directory) con
     return LexicalPath { directory }.parent().string() == packages.value();
 }
 
+ErrorOr<LoadedExtension> Application::load_extension_from(StringView path) const
+{
+    // A packed extension's folder is named after its ID. A .crx file's manifest has the key that gives that ID; a .zip
+    // archive's has none, so the folder's name is taken as the ID.
+    auto directory = TRY(FileSystem::real_path(path));
+    if (is_unpacked_extension_package(directory))
+        return load_unpacked_extension(directory, MUST(String::from_byte_string(LexicalPath::basename(directory))));
+    return load_unpacked_extension(directory);
+}
+
 void Application::load_extensions()
 {
     m_extensions.clear();
@@ -951,7 +961,7 @@ void Application::load_extensions()
     Vector<ByteString> paths = m_extension_paths;
     paths.extend(m_installed_extension_paths);
     for (auto const& path : paths) {
-        auto extension = load_unpacked_extension(path);
+        auto extension = load_extension_from(path);
         if (extension.is_error()) {
             warnln("Unable to load extension from {}: {}", path, extension.error());
             m_extension_load_errors.append({ path, MUST(String::formatted("{}", extension.error())) });
@@ -1011,7 +1021,7 @@ ErrorOr<void> Application::set_extension_enabled(StringView id, bool enabled)
             return find_in(m_extensions).has_value() ? ErrorOr<void> {} : Error::from_string_literal("No such extension");
 
         // Its files may have changed while it was off, so it is loaded afresh, as Chromium does.
-        auto reloaded = load_unpacked_extension(m_disabled_extensions[*index].directory);
+        auto reloaded = load_extension_from(m_disabled_extensions[*index].directory);
         if (reloaded.is_error())
             return reloaded.release_error();
 
@@ -1054,7 +1064,7 @@ bool Application::is_extension_folder_from_command_line(ByteString const& direct
 
 ErrorOr<void> Application::install_unpacked_extension(StringView directory)
 {
-    auto extension = TRY(load_unpacked_extension(directory));
+    auto extension = TRY(load_extension_from(directory));
 
     if (!any_of(m_installed_extension_paths, [&](ByteString const& path) { return names_folder(path, extension.directory); }))
         m_installed_extension_paths.append(extension.directory);
@@ -1143,7 +1153,7 @@ ErrorOr<void> Application::reload_extension(StringView id)
         return Error::from_string_literal("No such extension");
 
     // If it no longer loads, the version that runs keeps running, and the user is told why.
-    auto reloaded = TRY(load_unpacked_extension(m_extensions[*index].directory));
+    auto reloaded = TRY(load_extension_from(m_extensions[*index].directory));
 
     unload_extension(m_extensions[*index].id);
     m_extensions[*index] = move(reloaded);
@@ -1158,7 +1168,7 @@ ErrorOr<void> Application::retry_extension_load(StringView directory)
     if (!index.has_value())
         return Error::from_string_literal("No such folder");
 
-    auto extension = load_unpacked_extension(directory);
+    auto extension = load_extension_from(directory);
     if (extension.is_error()) {
         m_extension_load_errors[*index].error = MUST(String::formatted("{}", extension.error()));
         return extension.release_error();

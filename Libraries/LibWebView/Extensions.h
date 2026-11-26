@@ -40,7 +40,8 @@ struct ExtensionLoadError {
     String error;
 };
 
-WEBVIEW_API ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory);
+// Loads the extension in a directory. Its ID is id_without_key, if given, when the manifest has no "key".
+WEBVIEW_API ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory, Optional<String> const& id_without_key = {});
 
 // Reads a text file of an extension, at a path relative to its directory, which the path may not leave.
 WEBVIEW_API ErrorOr<String> read_extension_text_file(LoadedExtension const&, StringView relative_path);
