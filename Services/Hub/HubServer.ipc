@@ -239,6 +239,9 @@ endpoint HubServer
     cancel_unresumable_downloads() =|
     active_view_changed(Optional<u64> view_id) =|
     tab_order_changed(Vector<u64> view_ids) =|
+    // The tabs and windows the user closed and may reopen, most recently closed first, as a JSON array of
+    // { id, url, title, tabCount, wasWindow, closedAt (seconds since the epoch) }.
+    recently_closed_changed(String entries_json) =|
     extension_action_clicked(String extension_id, u64 view_id) =|
     // The menu of an extension's toolbar button.
     open_extension_options_page(String extension_id) =|

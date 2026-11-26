@@ -382,7 +382,8 @@ public:
     // The page in a view that may be the popup of an extension's button would fit in this size, in CSS pixels.
     virtual void extension_popup_did_request_size(u64 /* view_id */, Gfx::IntSize) { }
     // Reopens the tab or window that was closed most recently, as the UI's Reopen Closed Tab does.
-    virtual void reopen_recently_closed_tab() const { }
+    // Reopens the closed tab or window with the given session ID, or the most recently closed one.
+    virtual void reopen_recently_closed_tab(Optional<i64> = {}) const { }
     virtual void open_urls_in_new_tabs(ReadonlySpan<URL::URL>) const;
     virtual void open_url_in_new_window(URL::URL const&, IsPrivate) { }
     virtual void open_navigation_in_new_tab(Web::HTML::PreparedNavigationDescriptor, Web::HTML::ActivateTab, ViewImplementation const* source_view = nullptr) const;

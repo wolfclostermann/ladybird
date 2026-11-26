@@ -63,6 +63,8 @@ public:
     void view_did_change_pinned(ViewImplementation&);
     // The UI reports the order of its tab strips after each change, which tells of the tabs moved since.
     void tab_order_did_change(ReadonlySpan<u64> previous_order, ReadonlySpan<u64> order);
+    // The UI reports the tabs and windows the user may reopen, for the sessions API.
+    void recently_closed_did_change(StringView entries_json);
     void view_will_be_destroyed(u64 view_id);
     void active_view_did_change(Optional<u64> view_id);
 
@@ -115,6 +117,7 @@ private:
 
     void tabs_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     void scripting_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
+    void sessions_call(LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     void history_call(StringView function, JsonArray const& arguments, Completion);
     void search_query(WebContentPage&, JsonArray const& arguments, Completion);
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
@@ -160,6 +163,8 @@ private:
     HashTable<u64> m_announced_tabs;
     // The tabs that tabs.move or tabs.update asked the UI to move, until it reports the new order.
     HashTable<u64> m_requested_tab_moves;
+    // What the UI last reported of the tabs and windows the user may reopen, most recently closed first.
+    Optional<JsonArray> m_recently_closed;
     Optional<u64> m_active_view_id;
 
     // Like Chromium, which holds messages for a service worker until it starts, messages wait for a background page

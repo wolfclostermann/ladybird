@@ -609,15 +609,8 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
     if (api == "search.query"sv)
         return search_query(page, arguments, move(complete));
 
-    // https://developer.chrome.com/docs/extensions/reference/api/sessions#method-restore
-    if (api == "sessions.restore"sv) {
-        // FIXME: Restore a session by its ID, once sessions.getRecentlyClosed gives out IDs, and resolve with the
-        //        session that was restored.
-        if (!arguments.is_empty() && !arguments.at(0).is_null())
-            return complete(error("Restoring a session by its ID is not supported yet"sv));
-        Application::the().reopen_recently_closed_tab();
-        return complete(undefined_result());
-    }
+    if (api.starts_with("sessions."sv))
+        return sessions_call(extension, api.substring_view(9), arguments, move(complete));
 
     if (api == "windows.update"sv)
         return complete(result(window_object(false)));
@@ -1837,6 +1830,108 @@ Optional<ByteBuffer> ExtensionHost::favicon_png_for_page(URL::URL const& page_ur
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/history
+// A closed tab or window that the UI reported, as a session of the sessions API sees it.
+// https://developer.chrome.com/docs/extensions/reference/api/sessions#type-Session
+static JsonObject session_for(LoadedExtension const& extension, JsonObject const& entry)
+{
+    auto session_id = MUST(String::formatted("{}", entry.get_integer<i64>("id"sv).value_or(0)));
+    auto was_window = entry.get_bool("wasWindow"sv).value_or(false);
+
+    // FIXME: The UI tells only of the page a closed window's active tab was on, so a window has that one tab.
+    JsonObject tab;
+    tab.set("index"sv, 0);
+    tab.set("windowId"sv, -1);
+    tab.set("highlighted"sv, false);
+    tab.set("active"sv, was_window);
+    tab.set("pinned"sv, false);
+    tab.set("incognito"sv, false);
+    tab.set("url"sv, entry.get_string("url"sv).value_or({}));
+    tab.set("title"sv, entry.get_string("title"sv).value_or({}));
+    if (!was_window)
+        tab.set("sessionId"sv, session_id);
+    tab = tab_as_seen_by(extension, move(tab));
+
+    JsonObject session;
+    session.set("lastModified"sv, entry.get_integer<i64>("closedAt"sv).value_or(0));
+    if (!was_window) {
+        session.set("tab"sv, move(tab));
+        return session;
+    }
+    JsonArray tabs;
+    tabs.must_append(move(tab));
+    JsonObject window;
+    window.set("id"sv, -1);
+    window.set("sessionId"sv, session_id);
+    window.set("focused"sv, false);
+    window.set("incognito"sv, false);
+    window.set("alwaysOnTop"sv, false);
+    window.set("type"sv, "normal"sv);
+    window.set("state"sv, "normal"sv);
+    window.set("tabs"sv, move(tabs));
+    session.set("window"sv, move(window));
+    return session;
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/sessions
+void ExtensionHost::sessions_call(LoadedExtension const& extension, StringView function, JsonArray const& arguments, Completion complete)
+{
+    auto entries = m_recently_closed.value_or({});
+    auto argument = [&](size_t index) { return index < arguments.size() ? arguments.at(index) : JsonValue {}; };
+
+    if (function == "getRecentlyClosed"sv) {
+        auto filter = argument(0).is_object() ? argument(0).as_object() : JsonObject {};
+        auto max_results = clamp(filter.get_integer<i64>("maxResults"sv).value_or(25), 0, 25);
+        JsonArray sessions;
+        for (size_t i = 0; i < entries.size() && sessions.size() < static_cast<size_t>(max_results); ++i) {
+            if (entries.at(i).is_object())
+                sessions.must_append(session_for(extension, entries.at(i).as_object()));
+        }
+        return complete(result(move(sessions)));
+    }
+
+    // Ladybird doesn't sync, so there are no other devices.
+    if (function == "getDevices"sv)
+        return complete(result(JsonArray {}));
+
+    if (function == "restore"sv) {
+        // Without an ID, the most recently closed tab or window comes back.
+        Optional<JsonObject> entry;
+        if (argument(0).is_null()) {
+            if (!entries.is_empty() && entries.at(0).is_object())
+                entry = entries.at(0).as_object();
+        } else {
+            auto session_id = argument(0).is_string() ? argument(0).as_string().to_number<i64>() : Optional<i64> {};
+            for (size_t i = 0; session_id.has_value() && i < entries.size(); ++i) {
+                if (entries.at(i).is_object() && entries.at(i).as_object().get_integer<i64>("id"sv) == session_id)
+                    entry = entries.at(i).as_object();
+            }
+            if (!entry.has_value())
+                return complete(error(MUST(String::formatted("Invalid session id: \"{}\"", argument(0).is_string() ? argument(0).as_string() : argument(0).serialized()))));
+        }
+        if (!entry.has_value())
+            return complete(error("There are no recently closed tabs or windows"sv));
+
+        Application::the().reopen_recently_closed_tab(entry->get_integer<i64>("id"sv));
+        // FIXME: Resolve with the session as it came back, with the IDs of its new tabs.
+        return complete(result(session_for(extension, *entry)));
+    }
+
+    complete(error(MUST(String::formatted("chrome.sessions.{} is not implemented yet", function))));
+}
+
+void ExtensionHost::recently_closed_did_change(StringView entries_json)
+{
+    auto entries = JsonValue::from_string(entries_json);
+    if (entries.is_error() || !entries.value().is_array())
+        return;
+    auto is_first_report = !m_recently_closed.has_value();
+    m_recently_closed = entries.value().as_array();
+
+    // https://developer.chrome.com/docs/extensions/reference/api/sessions#event-onChanged
+    if (!is_first_report && dispatches_events())
+        broadcast_to_extension_pages("sessions.onChanged"sv, {});
+}
+
 void ExtensionHost::history_call(StringView function, JsonArray const& arguments, Completion complete)
 {
     if (function != "search"sv) {

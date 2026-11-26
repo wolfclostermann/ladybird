@@ -172,6 +172,11 @@ void ConnectionFromUI::tab_order_changed(Vector<u64> view_ids)
     Application::the().set_tab_order(move(view_ids));
 }
 
+void ConnectionFromUI::recently_closed_changed(String entries_json)
+{
+    Application::the().extension_host().recently_closed_did_change(entries_json);
+}
+
 void ConnectionFromUI::extension_action_clicked(String extension_id, u64 view_id)
 {
     Application::the().extension_host().action_clicked(extension_id, view_id);

@@ -339,9 +339,9 @@ void HubConnection::app_activate_or_open_tab_with_url(URL::URL url)
     Application::the().activate_or_open_tab_with_url(url);
 }
 
-void HubConnection::app_reopen_recently_closed_tab()
+void HubConnection::app_reopen_recently_closed_tab(Optional<i64> session_id)
 {
-    Application::the().reopen_recently_closed_tab(Application::the().active_window_if_any());
+    Application::the().reopen_recently_closed_tab(Application::the().active_window_if_any(), session_id);
 }
 
 void HubConnection::app_extension_actions_changed(String actions_json)

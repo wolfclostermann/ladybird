@@ -137,8 +137,10 @@ ErrorOr<int> ladybird_main(Main::Arguments arguments)
     }
 
     // NB: Messages to the Hub arrive in order, so this comes after whatever these windows have asked to show.
-    if (auto* hub = Ladybird::HubConnection::the_if_connected())
+    if (auto* hub = Ladybird::HubConnection::the_if_connected()) {
         hub->async_ui_did_start();
+        app->report_recently_closed_soon();
+    }
 
     auto exit_status = TRY(app->execute());
     auto restart = app->take_restart_command();

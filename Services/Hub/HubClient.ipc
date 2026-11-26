@@ -316,7 +316,7 @@ endpoint HubClient
     app_gpu_painting_changed(bool gpu_painting_enabled) =|
     app_open_urls_in_new_tabs(Vector<URL::URL> urls) =|
     app_activate_or_open_tab_with_url(URL::URL url) =|
-    app_reopen_recently_closed_tab() =|
+    app_reopen_recently_closed_tab(Optional<i64> session_id) =|
     app_extension_actions_changed(String actions_json) =|
     app_show_extension_popup(String extension_id, u64 tab_view_id, URL::URL url) =|
     app_extension_popup_did_request_size(u64 view_id, Gfx::IntSize size) =|

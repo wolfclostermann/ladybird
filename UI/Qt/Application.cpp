@@ -2942,6 +2942,7 @@ void Application::rebuild_bookmarks_menu() const
 
 void Application::update_reopen_recently_closed_actions() const
 {
+    report_recently_closed_soon();
     if (m_application)
         static_cast<LadybirdQApplication*>(m_application.ptr())->update_reopen_recently_closed_action();
 }
@@ -3169,6 +3170,36 @@ void Application::report_tab_order_soon()
             }
         }
         hub->async_tab_order_changed(move(view_ids));
+    });
+}
+
+// Tells the Hub of the tabs and windows the user may reopen, for the sessions API of extensions. Private windows' closed
+// tabs are left out.
+void Application::report_recently_closed_soon() const
+{
+    if (m_recently_closed_report_is_pending)
+        return;
+    m_recently_closed_report_is_pending = true;
+    Core::deferred_invoke([this] {
+        m_recently_closed_report_is_pending = false;
+        auto* hub = HubConnection::the_if_connected();
+        if (!hub)
+            return;
+
+        // Chromium gives out up to 25 of them.
+        JsonArray entries;
+        for (auto const& unit : session_store(WebView::IsPrivate::No).recently_closed_units(25)) {
+            auto history_entry = history_store().entry_for_url(unit.active_url);
+            JsonObject entry;
+            entry.set("id"sv, unit.id);
+            entry.set("url"sv, unit.active_url.serialize());
+            entry.set("title"sv, history_entry.has_value() && history_entry->title.has_value() ? *history_entry->title : String {});
+            entry.set("tabCount"sv, static_cast<u64>(unit.tab_count));
+            entry.set("wasWindow"sv, unit.was_window);
+            entry.set("closedAt"sv, unit.closed_at.seconds_since_epoch());
+            entries.must_append(move(entry));
+        }
+        hub->async_recently_closed_changed(entries.serialized());
     });
 }
 

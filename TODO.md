@@ -31,7 +31,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] `tabs.update({pinned})`, for Vimium's pin toggle. Fires `tabs.onUpdated` with `pinned`; `tabs.query({pinned})` works.
 - [x] `tabs.onMoved`, also for moves the user makes (worked out from the tab strip order the UI reports).
 - [ ] Moving tabs between windows (`tabs.move` with `windowId`, `tabs.onAttached`/`onDetached`); there is one window, id 1.
-- [ ] `sessions.getRecentlyClosed`, and `sessions.restore` by session ID.
+- [x] `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`. A closed window lists only
+      the tab that was active in it, and `restore` resolves with the session as it was listed (no new tab IDs).
 
 ## Next phase: UI
 

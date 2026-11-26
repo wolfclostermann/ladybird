@@ -178,10 +178,10 @@ void Application::activate_or_open_tab_with_url(URL::URL const& url) const
         WebView::Application::activate_or_open_tab_with_url(url);
 }
 
-void Application::reopen_recently_closed_tab() const
+void Application::reopen_recently_closed_tab(Optional<i64> session_id) const
 {
     if (auto* ui = ConnectionFromUI::the())
-        ui->async_app_reopen_recently_closed_tab();
+        ui->async_app_reopen_recently_closed_tab(session_id);
 }
 
 void Application::extension_actions_changed()

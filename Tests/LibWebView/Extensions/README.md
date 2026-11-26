@@ -20,6 +20,8 @@ kept so that the checks can be repeated.
   - `moved-ext`: `tabs.onMoved`. Opens three tabs, moves them with `tabs.move` (one and several) and by pinning,
     and logs `MOVED ...` lines with each event and the order after each step. Needs the Qt UI. Drag a tab afterwards
     to see the event for a user's move.
+  - `sessions-ext`: `chrome.sessions`. Opens and closes two tabs, lists them, restores one by ID and one with no ID,
+    logging `SESSIONS ...` lines. Needs the Qt UI.
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
   - `csp-ext`: content scripts on a page with a strict CSP and Trusted Types (`sites/csp-site`, served by
     `tools/csp-server.py`).
