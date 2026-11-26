@@ -87,6 +87,7 @@
 #include <LibWebView/WebContentClient.h>
 #include <LibWebView/WebDriverBiDi.h>
 #include <LibWebView/WebDriverBrowserConnection.h>
+#include <LibWebView/WebUI/ExtensionsUI.h>
 #include <LibWebView/WebUI/SettingsUI.h>
 #include <LibWebView/WebUI/SupportUI.h>
 #include <LibWebView/WorkerAgentManager.h>
@@ -1225,6 +1226,22 @@ void Application::extensions_did_change()
         client->async_set_extensions(*m_extensions_json);
 
     extension_actions_changed();
+    ExtensionsUI::extensions_did_change();
+}
+
+void Application::open_extension_options_page(StringView id)
+{
+    auto const* extension = extension_with_id(id);
+    if (!extension)
+        return;
+    auto path = options_page_path(*extension);
+    if (!path.has_value())
+        return;
+
+    auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension->id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
+    if (!url.has_value())
+        return;
+    open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes);
 }
 
 LoadedExtension const* Application::extension_with_id(StringView id) const

@@ -109,6 +109,8 @@ public:
     // Unloads an extension and deletes what it stored. One loaded with --load-extension comes back when Ladybird is
     // next started with that option, as in Chromium.
     ErrorOr<void> remove_extension(StringView id);
+    // Opens the options page of an enabled extension in a new tab, if it has one.
+    void open_extension_options_page(StringView id);
     // Loads an enabled extension afresh from its folder, as after its files changed, and restarts it.
     ErrorOr<void> reload_extension(StringView id);
     // Tries again to load an extension that could not be loaded from a folder.

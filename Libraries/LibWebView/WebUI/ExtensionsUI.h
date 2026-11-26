@@ -15,6 +15,13 @@ namespace WebView {
 class ExtensionsUI final : public WebUI {
     WEB_UI(ExtensionsUI);
 
+public:
+    virtual ~ExtensionsUI() override;
+
+    // Shows the extensions afresh on every open about:extensions page, as they were changed from elsewhere, such as
+    // the menu of an extension's toolbar button.
+    static void extensions_did_change();
+
 private:
     virtual void register_interfaces() override;
 

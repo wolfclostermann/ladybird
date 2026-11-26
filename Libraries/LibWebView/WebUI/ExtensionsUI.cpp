@@ -7,7 +7,6 @@
 #include <AK/Base64.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
-#include <LibURL/Parser.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/WebContentClient.h>
@@ -19,8 +18,29 @@ namespace WebView {
 // The size at which the page shows icons, in CSS pixels, doubled for high-density displays.
 static constexpr int icon_size = 48 * 2;
 
+// The about:extensions pages that are open, which are told whenever extensions change.
+static Vector<ExtensionsUI*>& open_pages()
+{
+    static auto* pages = new Vector<ExtensionsUI*>;
+    return *pages;
+}
+
+ExtensionsUI::~ExtensionsUI()
+{
+    open_pages().remove_first_matching([this](auto* page) { return page == this; });
+}
+
+void ExtensionsUI::extensions_did_change()
+{
+    for (auto* page : open_pages()) {
+        if (page->has_client())
+            page->load_extensions();
+    }
+}
+
 void ExtensionsUI::register_interfaces()
 {
+    open_pages().append(this);
     register_interface("loadExtensions"sv, [this](auto const&) {
         load_extensions();
     });
@@ -173,17 +193,7 @@ void ExtensionsUI::open_options_page(JsonValue const& data)
     if (!page || !page->consume_transient_user_activation())
         return;
 
-    auto const* extension = Application::the().extension_with_id(data.as_string());
-    if (!extension)
-        return;
-    auto path = options_page_path(*extension);
-    if (!path.has_value())
-        return;
-
-    auto url = URL::Parser::basic_parse(MUST(String::formatted("chrome-extension://{}/{}", extension->id, path->bytes_as_string_view().trim("/"sv, TrimMode::Left))));
-    if (!url.has_value())
-        return;
-    Application::the().open_url_in_new_tab(*url, Web::HTML::ActivateTab::Yes);
+    Application::the().open_extension_options_page(data.as_string());
 }
 
 void ExtensionsUI::set_extension_enabled(JsonValue const& data)

@@ -50,6 +50,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
@@ -734,6 +735,15 @@ public:
 
     String const& extension_id() const { return m_extension_id; }
 
+    // The extension's name and whether it has an options page, for the button's menu.
+    QString const& extension_name() const { return m_extension_name; }
+    bool has_options_page() const { return m_has_options_page; }
+    void set_extension_details(QString name, bool has_options_page)
+    {
+        m_extension_name = AK::move(name);
+        m_has_options_page = has_options_page;
+    }
+
     void set_badge(QString text, QColor background, QColor foreground)
     {
         if (m_badge_text == text && m_badge_background == background && m_badge_foreground == foreground)
@@ -777,6 +787,8 @@ private:
     }
 
     String m_extension_id;
+    QString m_extension_name;
+    bool m_has_options_page { false };
     QString m_badge_text;
     QColor m_badge_background;
     QColor m_badge_foreground;
@@ -2404,6 +2416,10 @@ void WindowToolbar::update_extension_buttons()
                     return;
                 HubConnection::the().async_extension_action_clicked(button->extension_id(), m_tab->view().view_id());
             });
+            button->setContextMenuPolicy(Qt::CustomContextMenu);
+            QObject::connect(button, &QWidget::customContextMenuRequested, this, [this, button](QPoint const& position) {
+                show_extension_button_menu(*button, button->mapToGlobal(position));
+            });
             m_extension_buttons.append(button);
         }
     }
@@ -2447,6 +2463,7 @@ void WindowToolbar::update_extension_buttons()
         auto enabled = get("enabled"sv).has_value() && get("enabled"sv)->is_bool() ? get("enabled"sv)->as_bool() : true;
 
         auto* button = m_extension_buttons[i];
+        button->set_extension_details(qstring_from_ak_string(name), action.get_bool("hasOptionsPage"sv).value_or(false));
         button->setIcon(extension_icon(string("icon"sv), name, palette));
         button->setToolTip(qstring_from_ak_string(title));
         button->setAccessibleName(qstring_from_ak_string(title));
@@ -2457,6 +2474,45 @@ void WindowToolbar::update_extension_buttons()
     }
 
     m_extension_buttons_container->setVisible(!m_extension_buttons.is_empty());
+}
+
+// The menu of an extension's toolbar button, which, as in Chromium, opens its options and manages it.
+void WindowToolbar::show_extension_button_menu(ExtensionActionButton& button, QPoint global_position)
+{
+    auto extension_id = button.extension_id();
+    auto name = button.extension_name();
+
+    QMenu menu(&button);
+    auto* title = menu.addAction(name);
+    title->setEnabled(false);
+    menu.addSeparator();
+
+    if (button.has_options_page()) {
+        QObject::connect(menu.addAction(QObject::tr("Options")), &QAction::triggered, this, [extension_id] {
+            HubConnection::the().async_open_extension_options_page(extension_id);
+        });
+    }
+    QObject::connect(menu.addAction(QObject::tr("Turn Off")), &QAction::triggered, this, [extension_id] {
+        HubConnection::the().async_turn_off_extension(extension_id);
+    });
+    QObject::connect(menu.addAction(QObject::tr("Remove from Ladybird…")), &QAction::triggered, this, [this, extension_id, name] {
+        QMessageBox dialog(this);
+        dialog.setIcon(QMessageBox::Warning);
+        dialog.setText(QObject::tr("Remove “%1”?").arg(name));
+        dialog.setInformativeText(QObject::tr("This deletes everything it saved, such as its settings."));
+        auto* remove_button = dialog.addButton(QObject::tr("Remove"), QMessageBox::DestructiveRole);
+        dialog.setDefaultButton(dialog.addButton(QMessageBox::Cancel));
+        dialog.exec();
+        if (dialog.clickedButton() == remove_button)
+            HubConnection::the().async_remove_extension(extension_id);
+    });
+    menu.addSeparator();
+    QObject::connect(menu.addAction(QObject::tr("Manage Extensions")), &QAction::triggered, this, [this] {
+        if (m_tab)
+            m_tab->view().open_url_in_new_tab(URL::URL::about("extensions"sv), Web::HTML::ActivateTab::Yes);
+    });
+
+    menu.exec(global_position);
 }
 
 void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, URL::URL const& url)

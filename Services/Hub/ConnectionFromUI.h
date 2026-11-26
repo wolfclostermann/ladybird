@@ -62,6 +62,9 @@ private:
     virtual Messages::HubServer::ViewDescriptionResponse view_description(u64 view_id) override;
     virtual void ui_did_start() override;
     virtual void extension_action_clicked(String extension_id, u64 view_id) override;
+    virtual void open_extension_options_page(String extension_id) override;
+    virtual void turn_off_extension(String extension_id) override;
+    virtual void remove_extension(String extension_id) override;
     virtual void add_web_ui_page(String host, String title) override;
     virtual void send_web_ui_message(u64 web_ui_id, String name, JsonValue data) override;
     virtual Messages::HubServer::WebUiConsumeUserActivationResponse web_ui_consume_user_activation(u64 web_ui_id) override;

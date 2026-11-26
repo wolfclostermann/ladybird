@@ -110,6 +110,7 @@ public:
     // Shows the buttons of extensions as the application describes them, as they look for the tab that is shown.
     void update_extension_buttons();
     void show_extension_popup(String const& extension_id, Tab&, URL::URL const&);
+    void show_extension_button_menu(ExtensionActionButton&, QPoint global_position);
     void extension_popup_did_request_size(u64 view_id, Gfx::IntSize);
 
 private:

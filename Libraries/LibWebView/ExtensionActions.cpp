@@ -350,6 +350,7 @@ String ExtensionActions::serialized(ReadonlySpan<LoadedExtension> extensions)
         JsonObject button;
         button.set("extensionId"sv, extension.id);
         button.set("name"sv, extension.name);
+        button.set("hasOptionsPage"sv, options_page_path(extension).has_value());
         button.set("defaults"sv, properties_to_json(state.defaults));
         button.set("tabs"sv, move(tabs));
         buttons.must_append(move(button));

@@ -177,6 +177,23 @@ void ConnectionFromUI::extension_action_clicked(String extension_id, u64 view_id
     Application::the().extension_host().action_clicked(extension_id, view_id);
 }
 
+void ConnectionFromUI::open_extension_options_page(String extension_id)
+{
+    Application::the().open_extension_options_page(extension_id);
+}
+
+void ConnectionFromUI::turn_off_extension(String extension_id)
+{
+    if (auto result = Application::the().set_extension_enabled(extension_id, false); result.is_error())
+        warnln("Unable to turn off extension {}: {}", extension_id, result.error());
+}
+
+void ConnectionFromUI::remove_extension(String extension_id)
+{
+    if (auto result = Application::the().remove_extension(extension_id); result.is_error())
+        warnln("Unable to remove extension {}: {}", extension_id, result.error());
+}
+
 void ConnectionFromUI::answer_clipboard_text(u64 request_id, Utf16String text)
 {
     Application::the().did_read_clipboard_text(request_id, move(text));
