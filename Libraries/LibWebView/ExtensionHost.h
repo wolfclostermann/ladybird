@@ -113,6 +113,32 @@ private:
 
     void runtime_send_message(WebContentPage&, LoadedExtension const&, Context const&, JsonArray const& arguments, Completion);
     void tabs_send_message(LoadedExtension const&, JsonArray const& arguments, Completion);
+
+    // https://developer.chrome.com/docs/extensions/develop/concepts/messaging#connect
+    // One end of a port: the contexts of a type in a view, in one frame or in all of them.
+    struct PortEnd {
+        u64 view_id { 0 };
+        String context_type;
+        Optional<u64> frame_id;
+
+        bool contains(u64 view_id, StringView context_type, u64 frame_id) const;
+        bool operator==(PortEnd const&) const = default;
+    };
+    struct Port {
+        String extension_id;
+        String name;
+        PortEnd opener;
+        PortEnd receiver;
+        // Until the receiver is told of the port, the opener's messages wait.
+        bool receiver_was_told { false };
+        Vector<JsonValue> waiting_messages;
+    };
+    void port_call(WebContentPage&, LoadedExtension const&, Context const&, StringView api, JsonArray const& arguments, Completion);
+    void connect_port(String const& port_id, JsonObject sender);
+    void send_to_port_end(String const& extension_id, PortEnd const&, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete = [](auto) { });
+    // Closes the port, telling the ends that are not the one that closed it, with the error if there is one.
+    void close_port(String const& port_id, Optional<PortEnd> closed_by, Optional<StringView> error = {});
+    void close_ports_matching(Function<bool(Port const&, PortEnd const&)> end_is_gone);
     void storage_call(LoadedExtension const&, StringView area, StringView function, JsonArray const& arguments, Completion);
 
     void tabs_call(WebContentPage&, LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
@@ -165,6 +191,8 @@ private:
     HashTable<u64> m_requested_tab_moves;
     // What the UI last reported of the tabs and windows the user may reopen, most recently closed first.
     Optional<JsonArray> m_recently_closed;
+    // The open ports, by their IDs.
+    HashMap<String, Port> m_ports;
     Optional<u64> m_active_view_id;
 
     // Like Chromium, which holds messages for a service worker until it starts, messages wait for a background page

@@ -103,6 +103,74 @@ static constexpr StringView runtime_source = R"~~~(
         return extensionEvent;
     };
 
+    // https://developer.chrome.com/docs/extensions/develop/concepts/messaging#connect
+    // A port is known by a random ID, which the UI process relays messages by between this context and the other end.
+    const ports = new Map();
+    const closePort = Symbol("closePort");
+
+    class Port {
+        #id;
+        #disconnected = false;
+
+        constructor(id, name, sender) {
+            this.#id = id;
+            this.name = name;
+            if (sender !== undefined)
+                this.sender = sender;
+            this.onMessage = new ExtensionEvent();
+            this.onDisconnect = new ExtensionEvent();
+            ports.set(id, this);
+        }
+
+        postMessage(message) {
+            if (this.#disconnected)
+                throw new Error("Attempting to use a disconnected port object");
+            nativeCall("runtime.port.postMessage", JSON.stringify([this.#id, message === undefined ? null : message])).catch(() => {});
+        }
+
+        disconnect() {
+            if (this.#disconnected)
+                return;
+            this.#disconnected = true;
+            ports.delete(this.#id);
+            nativeCall("runtime.port.disconnect", JSON.stringify([this.#id])).catch(() => {});
+        }
+
+        // The other end went, or never was, which errorMessage tells of.
+        [closePort](errorMessage) {
+            if (this.#disconnected)
+                return;
+            this.#disconnected = true;
+            ports.delete(this.#id);
+            if (errorMessage)
+                runtime.lastError = { message: errorMessage };
+            try {
+                for (const listener of this.onDisconnect.listeners) {
+                    try {
+                        listener(this);
+                    } catch (error) {
+                        reportError(error);
+                    }
+                }
+            } finally {
+                runtime.lastError = undefined;
+            }
+        }
+    }
+
+    // Opens a port with api, unless refusal says why it can't be, which the port's onDisconnect then tells of.
+    function openPort(api, name, args, refusal) {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+        const port = new Port(id, name === undefined ? "" : String(name));
+        if (refusal)
+            setTimeout(() => port[closePort](refusal));
+        else
+            nativeCall(api, JSON.stringify([id, port.name, ...args])).catch((error) => port[closePort](error.message));
+        return port;
+    }
+
     const namespace = (name, functions = [], eventNames = [], extra = {}) => {
         const object = { ...extra };
         for (const functionName of functions)
@@ -132,7 +200,17 @@ static constexpr StringView runtime_source = R"~~~(
                     args.shift();
                 return invoke("runtime.sendMessage", args);
             },
-            connect() { throw new Error("chrome.runtime.connect is not implemented yet"); },
+            connect(...args) {
+                // The ID of another extension may come first.
+                let otherExtensionId;
+                if (typeof args[0] === "string" || args[0] === null || (args[0] === undefined && args.length > 1))
+                    otherExtensionId = args.shift();
+                const connectInfo = args[0] ?? {};
+                const refusal = otherExtensionId && otherExtensionId !== extensionId
+                    ? "Connecting to another extension is not supported"
+                    : undefined;
+                return openPort("runtime.connect", connectInfo.name, [], refusal);
+            },
         });
 
     const chrome = {
@@ -165,7 +243,12 @@ static constexpr StringView runtime_source = R"~~~(
                     "getZoom", "setZoom", "goBack", "goForward", "discard", "highlight", "captureVisibleTab", "detectLanguage"],
                 ["onActivated", "onCreated", "onRemoved", "onUpdated", "onReplaced", "onMoved", "onAttached",
                     "onDetached", "onHighlighted", "onZoomChange"],
-                { TAB_ID_NONE: -1 }),
+                {
+                    TAB_ID_NONE: -1,
+                    connect(tabId, connectInfo = {}) {
+                        return openPort("tabs.connect", connectInfo.name, [tabId, connectInfo.frameId ?? null]);
+                    },
+                }),
             windows: namespace("windows",
                 ["get", "getAll", "getCurrent", "getLastFocused", "create", "update", "remove"],
                 ["onCreated", "onRemoved", "onFocusChanged", "onBoundsChanged"],
@@ -276,6 +359,45 @@ static constexpr StringView runtime_source = R"~~~(
         const extensionEvent = events.get(name);
         const args = decode(argumentsJSON) ?? [];
         const listeners = extensionEvent ? extensionEvent.listeners : [];
+
+        // A port opened elsewhere is connected to this context if it listens for one. The UI process learns of that
+        // from the response.
+        if (name === "runtime.onConnect") {
+            const [id, portName, sender] = args;
+            if (listeners.length === 0 || ports.has(id)) {
+                respond();
+                return;
+            }
+            const port = new Port(id, portName, sender);
+            for (const listener of listeners) {
+                try {
+                    listener(port);
+                } catch (error) {
+                    reportError(error);
+                }
+            }
+            respond(JSON.stringify(true));
+            return;
+        }
+        if (name === "runtime.port.onMessage") {
+            const [id, message] = args;
+            const port = ports.get(id);
+            for (const listener of port ? port.onMessage.listeners : []) {
+                try {
+                    listener(message, port);
+                } catch (error) {
+                    reportError(error);
+                }
+            }
+            respond();
+            return;
+        }
+        if (name === "runtime.port.onDisconnect") {
+            const [id, errorMessage] = args;
+            ports.get(id)?.[closePort](errorMessage ?? undefined);
+            respond();
+            return;
+        }
 
         if (name !== "runtime.onMessage") {
             for (const listener of listeners) {

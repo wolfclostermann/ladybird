@@ -1,0 +1,8 @@
+{
+    "manifest_version": 3,
+    "name": "Port probe",
+    "version": "0.1",
+    "permissions": ["tabs"],
+    "background": { "service_worker": "bg.js" },
+    "content_scripts": [{ "matches": ["https://example.com/*", "https://example.org/*"], "js": ["content.js"] }]
+}

@@ -42,6 +42,10 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `3ed85fc4beb` | `about:extensions` reloads an extension from its folder, and tries again to load a folder that failed. |
 | `a49aaa5cd4d` | `WebDriver --load-extension=<dir>` passes the option on to the browser, for scripted tests. |
 | `77cd95fe528` | `about:extensions` has a Load Unpacked… button that installs an extension folder for good (listed under `unpacked` in `extensions.json`), so it loads without `--load-extension`. |
+| `f01bd5cdd96` | `tabs.update({pinned})` pins and unpins tabs (Vimium's pin toggle); `tabs.onUpdated` tells of pin changes and `tabs.query` filters by `pinned`. |
+| `5b56f978882` | `tabs.onMoved`, for moves by extensions and by the user, worked out from the tab strip order the UI reports. |
+| `2bf3d16bf1c` | `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`; the UI reports what may be reopened (`recently_closed_changed`). |
+| (this branch) | `runtime.connect`, `tabs.connect` and ports, relayed by the browser process between the two ends it recorded. |
 | `7be35cc1f1d` | `about:extensions` has an Install from File… button for `.crx` (CRX3, signatures checked) and `.zip` files, unpacked into `<profile data>/Extensions/Packed/<id>/`. A manifest `key` now gives the key's ID, so a `.crx` keeps Chromium's ID. |
 
 ### Where the code lives
@@ -94,16 +98,18 @@ All fixed. `TODO.md` is the live checklist.
 
 ### Gaps in what is implemented
 
-- `tabs.move` can't move a tab to another window, and `tabs.onMoved` is never fired.
-- `sessions.restore` reopens only the most recent tab; there is no `sessions.getRecentlyClosed` or session ID.
+- `tabs.move` can't move a tab to another window (there is one window, id 1).
+- A closed window in `sessions.getRecentlyClosed` lists only the tab that was active in it, and `sessions.restore`
+  resolves with the session as it was listed rather than with the new tabs' IDs.
 - `search.query` fails until the user chooses a search engine (Ladybird has none by default).
 - `_favicon/` serves no default icon, nothing larger than 1x for HiDPI, and a favicon from history only if it is
   already small enough (decoding happens in another process).
-- `tabs.update({pinned})` does nothing, so Vimium's pin toggle doesn't work.
+- `runtime.connect` reaches only the background page, like `runtime.sendMessage`, not the extension's other pages.
+  A port to all frames of a tab (`tabs.connect` without `frameId`) closes once any of its frames disconnects, and a
+  port's end in a removed iframe stays open until its tab navigates or closes.
 
 ### APIs still missing
 
-- `runtime.connect` and ports (many extensions other than Vimium need these).
 - `runtime.sendMessage` reaches only the background page, not other extension pages.
 - Writing bookmarks, `notifications`, `alarms`, `contextMenus`.
 - `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Not started.
@@ -296,7 +302,7 @@ extension's privileges. The three high-severity items below are fixed, and the f
   ExtensionHost.cpp` (every API call, in the browser process), `Libraries/LibWebView/Extensions.cpp` (loading and
   file access). New Hub↔UI messages: `tab_order_changed` (UI→Hub), `view_move_tab` and
   `app_reopen_recently_closed_tab` (Hub→UI).
-- Suggested next steps, in order: the remaining high-severity security item in section 4 (2); `runtime.connect`;
-  `tabs.onMoved` and pinning; clang-format the new code. New Hub↔UI messages for the toolbar buttons:
+- Suggested next steps, in order: the remaining high-severity security item in section 4 (2); clang-format the new
+  code. New Hub↔UI messages for the toolbar buttons:
   `app_extension_actions_changed`, `app_show_extension_popup`, `app_extension_popup_did_request_size` (Hub→UI) and
   `extension_action_clicked` (UI→Hub).

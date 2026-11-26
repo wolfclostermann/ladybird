@@ -22,6 +22,9 @@ kept so that the checks can be repeated.
     to see the event for a user's move.
   - `sessions-ext`: `chrome.sessions`. Opens and closes two tabs, lists them, restores one by ID and one with no ID,
     logging `SESSIONS ...` lines. Needs the Qt UI.
+  - `port-ext`: `runtime.connect`, `tabs.connect` and ports between content scripts on example.com/.org, the
+    background page and `page.html`: messages both ways, disconnects from either end, no receiver, navigation and
+    closing the tab. Logs `PORT ...` lines.
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
   - `csp-ext`: content scripts on a page with a strict CSP and Trusted Types (`sites/csp-site`, served by
     `tools/csp-server.py`).

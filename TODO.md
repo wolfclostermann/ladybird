@@ -48,6 +48,11 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       Chromium. Buttons are unpinned by default; pins and their order persist. `action.openPopup` and
       `action.getUserSettings().isOnToolbar` work. No drag-to-reorder of pinned buttons yet.
 
+## Other APIs
+
+- [x] `runtime.connect`, `tabs.connect` and ports. Like `runtime.sendMessage`, `runtime.connect` reaches only the
+      background page.
+
 ## Housekeeping
 
 - [x] Keep the test extensions and pages (a toy extension, a Vimium test page) in the repo or another permanent

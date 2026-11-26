@@ -337,7 +337,7 @@ Optional<ExtensionHost::Caller> ExtensionHost::caller_for(WebContentPage const& 
 // extension allows it.
 bool ExtensionHost::content_script_may_call(LoadedExtension const& extension, StringView api) const
 {
-    if (api.is_one_of("runtime.sendMessage"sv, "runtime.connect"sv))
+    if (api.is_one_of("runtime.sendMessage"sv, "runtime.connect"sv, "runtime.port.postMessage"sv, "runtime.port.disconnect"sv))
         return true;
     if (api.starts_with("storage."sv)) {
         if (api.ends_with(".setAccessLevel"sv))
@@ -596,6 +596,9 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         return complete(m_actions->call(extension, base_url_for_paths(extension, context), function, arguments));
     }
 
+    if (api.is_one_of("runtime.connect"sv, "tabs.connect"sv) || api.starts_with("runtime.port."sv))
+        return port_call(page, extension, context, api, arguments, move(complete));
+
     if (api.starts_with("tabs."sv))
         return tabs_call(page, extension, api.substring_view(5), arguments, move(complete));
     if (api.starts_with("scripting."sv))
@@ -720,6 +723,171 @@ void ExtensionHost::background_page_did_load(LoadedExtension const& extension)
     // The messages that waited go once the listeners of the event have run, as the event was dispatched first.
     for (auto& send : m_waiting_for_background_page.take(extension.id).value_or({}))
         send();
+}
+
+bool ExtensionHost::PortEnd::contains(u64 other_view_id, StringView other_context_type, u64 other_frame_id) const
+{
+    return view_id == other_view_id && context_type == other_context_type && (!frame_id.has_value() || *frame_id == other_frame_id);
+}
+
+// https://developer.chrome.com/docs/extensions/develop/concepts/messaging#connect
+void ExtensionHost::port_call(WebContentPage& page, LoadedExtension const& extension, Context const& context, StringView api, JsonArray const& arguments, Completion complete)
+{
+    auto argument = [&](size_t index) { return index < arguments.size() ? arguments.at(index) : JsonValue {}; };
+    auto port_id = argument(0).is_string() ? argument(0).as_string() : String {};
+    auto caller_view_id = page.view().view_id();
+
+    if (api == "runtime.port.postMessage"sv || api == "runtime.port.disconnect"sv) {
+        // Only the contexts at the ends of a port may use it.
+        auto port = m_ports.get(port_id);
+        if (!port.has_value() || port->extension_id != extension.id)
+            return complete(error("Attempting to use a disconnected port object"sv));
+        auto from_opener = port->opener.contains(caller_view_id, context.type, context.frame_id);
+        if (!from_opener && !port->receiver.contains(caller_view_id, context.type, context.frame_id))
+            return complete(error("Attempting to use a disconnected port object"sv));
+
+        if (api == "runtime.port.disconnect"sv) {
+            auto closed_by = from_opener ? port->opener : port->receiver;
+            close_port(port_id, move(closed_by));
+            return complete(undefined_result());
+        }
+
+        auto message = argument(1);
+        if (from_opener && !port->receiver_was_told) {
+            port->waiting_messages.append(move(message));
+            return complete(undefined_result());
+        }
+        JsonArray event_arguments;
+        event_arguments.must_append(port_id);
+        event_arguments.must_append(move(message));
+        send_to_port_end(extension.id, from_opener ? port->receiver : port->opener, "runtime.port.onMessage"sv, event_arguments);
+        return complete(undefined_result());
+    }
+
+    // The port's ID is the opener's to choose. It is random, and one in use can't be taken over.
+    if (port_id.bytes().size() != 32 || !all_of(port_id.bytes(), is_ascii_hex_digit) || m_ports.contains(port_id))
+        return complete(error("Invalid port ID"sv));
+
+    Port port {
+        .extension_id = extension.id,
+        .name = argument(1).is_string() ? argument(1).as_string() : String {},
+        .opener = { .view_id = caller_view_id, .context_type = context.type, .frame_id = context.frame_id },
+        .receiver = {},
+        .receiver_was_told = false,
+        .waiting_messages = {},
+    };
+
+    JsonObject sender;
+    if (api == "runtime.connect"sv) {
+        // FIXME: Connect to the extension's other pages too, such as its popup, as Chromium does. Like
+        //        runtime.sendMessage, this reaches only the background page.
+        auto* background_view = Application::the().extension_background_view(extension.id);
+        if (!background_view || background_view->view_id() == caller_view_id)
+            return complete(error("Could not establish connection. Receiving end does not exist."sv));
+        port.receiver = { .view_id = background_view->view_id(), .context_type = "extension_page"_string, .frame_id = 0 };
+        sender = sender_for(page, extension, context);
+    } else {
+        auto tab_id = argument(2).get_integer<i64>();
+        auto view = tab_id.has_value() ? tab_view_with_id(*tab_id) : Optional<ViewImplementation&> {};
+        if (!view.has_value())
+            return complete(error("Could not establish connection. Receiving end does not exist."sv));
+        port.receiver = { .view_id = view->view_id(), .context_type = "content_script"_string, .frame_id = argument(3).get_integer<u64>() };
+
+        sender.set("id"sv, extension.id);
+        sender.set("url"sv, context.url);
+        if (auto url = URL::Parser::basic_parse(context.url); url.has_value())
+            sender.set("origin"sv, url->origin().serialize());
+    }
+    m_ports.set(port_id, move(port));
+    complete(undefined_result());
+
+    // The background page may still be loading, as for runtime.sendMessage.
+    if (api == "runtime.connect"sv && !m_loaded_background_pages.contains(extension.id)) {
+        m_waiting_for_background_page.ensure(extension.id).append([this, port_id, sender = move(sender)]() mutable {
+            connect_port(port_id, move(sender));
+        });
+        return;
+    }
+    connect_port(port_id, move(sender));
+}
+
+void ExtensionHost::connect_port(String const& port_id, JsonObject sender)
+{
+    auto port = m_ports.get(port_id);
+    if (!port.has_value())
+        return;
+
+    JsonArray arguments;
+    arguments.must_append(port_id);
+    arguments.must_append(port->name);
+    arguments.must_append(move(sender));
+    // The receiver responds if one of its contexts listens, and so has taken the port.
+    send_to_port_end(port->extension_id, port->receiver, "runtime.onConnect"sv, arguments, [this, port_id](Optional<String> response) {
+        if (!response.has_value() && m_ports.contains(port_id))
+            close_port(port_id, {}, "Could not establish connection. Receiving end does not exist."sv);
+    });
+
+    // NB: Events to a page arrive in order, so the messages come after the port.
+    port->receiver_was_told = true;
+    for (auto& message : port->waiting_messages) {
+        JsonArray message_arguments;
+        message_arguments.must_append(port_id);
+        message_arguments.must_append(move(message));
+        send_to_port_end(port->extension_id, port->receiver, "runtime.port.onMessage"sv, message_arguments);
+    }
+    port->waiting_messages.clear();
+}
+
+void ExtensionHost::send_to_port_end(String const& extension_id, PortEnd const& end, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete)
+{
+    auto view = ViewImplementation::find_view_by_id(end.view_id);
+    if (!view.has_value()) {
+        on_complete({});
+        return;
+    }
+    JsonObject target;
+    target.set("contextType"sv, end.context_type);
+    if (end.frame_id.has_value())
+        target.set("frameId"sv, *end.frame_id);
+    dispatch_event(*view, extension_id, target, event, arguments, move(on_complete));
+}
+
+void ExtensionHost::close_port(String const& port_id, Optional<PortEnd> closed_by, Optional<StringView> error)
+{
+    auto port = m_ports.take(port_id);
+    if (!port.has_value())
+        return;
+
+    JsonArray arguments;
+    arguments.must_append(port_id);
+    if (error.has_value())
+        arguments.must_append(MUST(String::from_utf8(*error)));
+    // NB: An end that closed the port knows; telling it again would do nothing, as it has forgotten the port.
+    for (auto const* end : { &port->opener, &port->receiver }) {
+        if (closed_by == *end)
+            continue;
+        if (end == &port->receiver && !port->receiver_was_told)
+            continue;
+        send_to_port_end(port->extension_id, *end, "runtime.port.onDisconnect"sv, arguments);
+    }
+}
+
+// Closes the ports with an end that is gone: its view closed, its frame navigated, or its extension went.
+void ExtensionHost::close_ports_matching(Function<bool(Port const&, PortEnd const&)> end_is_gone)
+{
+    Vector<String> port_ids;
+    Vector<PortEnd> gone_ends;
+    for (auto const& [port_id, port] : m_ports) {
+        for (auto const* end : { &port.opener, &port.receiver }) {
+            if (end_is_gone(port, *end)) {
+                port_ids.append(port_id);
+                gone_ends.append(*end);
+                break;
+            }
+        }
+    }
+    for (size_t i = 0; i < port_ids.size(); ++i)
+        close_port(port_ids[i], gone_ends[i]);
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#method-sendMessage
@@ -1502,7 +1670,21 @@ void ExtensionHost::tab_did_update(ViewImplementation& view, JsonObject change_i
 void ExtensionHost::navigable_did_commit(CanonicalNavigable const& navigable)
 {
     auto view = navigable.top_level_traversable().view();
-    if (!view.has_value() || !is_tab_view(*view))
+    if (!view.has_value())
+        return;
+
+    // The contexts of the frame's old document are gone, and with them their ends of ports. A new top-level document
+    // replaces every frame.
+    if (!m_ports.is_empty()) {
+        auto view_id = view->view_id();
+        auto frame_id = frame_id_of(navigable);
+        auto is_top_level = navigable.is_top_level_traversable();
+        close_ports_matching([&](Port const&, PortEnd const& end) {
+            return end.view_id == view_id && (is_top_level || end.frame_id == frame_id);
+        });
+    }
+
+    if (!is_tab_view(*view))
         return;
 
     // As in Chromium, a tab navigating to another origin takes away the access activeTab gave to it.
@@ -1668,6 +1850,7 @@ void ExtensionHost::tab_order_did_change(ReadonlySpan<u64> previous_order, Reado
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onRemoved
 void ExtensionHost::view_will_be_destroyed(u64 view_id)
 {
+    close_ports_matching([&](Port const&, PortEnd const& end) { return end.view_id == view_id; });
     m_actions->view_will_be_destroyed(view_id);
     for (auto& [extension_id, grants] : m_active_tab_grants)
         grants.remove(view_id);
@@ -2152,6 +2335,10 @@ void ExtensionHost::extension_did_unload(String const& extension_id)
     m_pages_with_injected_scripts.remove(extension_id);
     m_loaded_background_pages.remove(extension_id);
     m_active_tab_grants.remove(extension_id);
+    // Its content scripts' ends of ports are told that the extension's ends went.
+    close_ports_matching([&](Port const& port, PortEnd const& end) {
+        return port.extension_id == extension_id && end.context_type == "extension_page"sv;
+    });
 
     // The calls that waited for its background page fail now that it is gone.
     for (auto& send : m_waiting_for_background_page.take(extension_id).value_or({}))
