@@ -47,6 +47,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [ ] Close the security gaps before everyday use:
   - [x] an extension's frame could share a process with the web page around it;
   - [x] the browser process trusted a renderer's claim about which extension is calling an API;
-  - the `matches` of an extension's `web_accessible_resources` aren't checked;
+  - [x] the `matches` of an extension's `web_accessible_resources` weren't checked;
+  - the page's CSP is bypassed for every `chrome-extension:` URL, not only web-accessible resources;
   - [x] permissions and host permissions weren't enforced;
   - `activeTab` and optional permissions (`permissions.request`) aren't supported.

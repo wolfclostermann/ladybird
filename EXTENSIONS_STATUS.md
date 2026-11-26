@@ -159,7 +159,7 @@ feature is the realistic assumption.
 **Short answer:** with no extension loaded, very little changes. Almost every new path checks `has_extensions()` or
 returns early. **With an extension loaded, there are real gaps**, several of which matter even if you trust the
 extension, because they let a *compromised web content process* or a *malicious web page* take advantage of the
-extension's privileges. The three high-severity items below are fixed; the medium ones remain.
+extension's privileges. The three high-severity items below are fixed, and the first medium one; the rest remain.
 
 ### High
 
@@ -194,9 +194,13 @@ extension's privileges. The three high-severity items below are fixed; the mediu
 
 ### Medium
 
-4. **`web_accessible_resources` `matches` are not checked** (`Libraries/LibWebView/Extensions.cpp:249`). Any web page
-   can load any resource an extension lists as web-accessible, not only the sites the manifest names. Websites can
-   use this to detect which extensions you run (fingerprinting) and to frame extension pages for clickjacking.
+4. **Fixed: `web_accessible_resources` `matches` were not checked.** A WebContent process now says which origin made each
+   `chrome-extension:` request (`LoadRequest::origin`), and the browser process believes it only for the site whose
+   documents it gave that process (`WebContentClient::may_make_requests_for_origin`). A Manifest V3 entry's resources
+   then load only for origins its `matches` cover, or for the extensions its `extension_ids` name (`*` for all);
+   Manifest V2 entries stay open to every page, as in Chromium. Remaining: `use_dynamic_url` is ignored; an opaque
+   origin (a sandboxed frame) matches nothing, where Chromium goes by the origin it came from; and a process that has
+   hosted documents of several sites (only without site isolation) is believed for any origin.
 
 5. **CSP bypass for all `chrome-extension:` URLs.** (`Libraries/LibWeb/Extensions/ContentScripts.cpp:45`.)
    Chromium and Firefox do the same for resources an extension injects, so this matches other browsers. But here
@@ -239,8 +243,8 @@ extension's privileges. The three high-severity items below are fixed; the mediu
 2. ~~Run extension frames and background pages in their own WebContent processes (item 2).~~ Done. This also
    tightens items 5 and 6.
 3. ~~Enforce `permissions` and `host_permissions` (item 3).~~ Done.
-4. Check `web_accessible_resources` `matches`, and limit the CSP bypass to web-accessible resources or loads started
-   by the extension (items 4 and 5).
+4. ~~Check `web_accessible_resources` `matches` (item 4).~~ Done. Limit the CSP bypass to web-accessible resources or
+   loads started by the extension (item 5).
 5. Add tests for path traversal in `open_extension_file` (item 9).
 
 ---
