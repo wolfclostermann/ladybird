@@ -38,6 +38,9 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `ee07bc3403f` | An `about:extensions` page: loaded extensions with icon, version, details and an Options button, and the ones that failed to load. |
 | `30dd514e73f` | Pages of an extension load when the browser itself opens them (options page, `tabs.create`, popups); before, only pages already hosting the extension could read its files. |
 | `2fd7010643e` | Toolbar buttons for extensions (`chrome.action`): icon, title, badge per tab, `onClicked`, and popups sized to their page. |
+| `7fd30c09527` | `about:extensions` turns extensions on and off (kept in `<profile data>/Extensions/extensions.json`) and removes them, deleting what they stored. |
+| `3ed85fc4beb` | `about:extensions` reloads an extension from its folder, and tries again to load a folder that failed. |
+| `a49aaa5cd4d` | `WebDriver --load-extension=<dir>` passes the option on to the browser, for scripted tests. |
 
 ### Where the code lives
 
@@ -105,11 +108,14 @@ All fixed. `TODO.md` is the live checklist.
 
 ### UI
 
-- `about:extensions` lists extensions but cannot enable, disable, reload or remove them.
+- `about:extensions` turns extensions on and off, reloads and removes them. Content scripts already running in a
+  page keep running until it reloads, as in Chromium. Removing one loaded with `--load-extension` lasts until
+  Ladybird next starts with that option, since that is the only way to install one so far.
 - Every extension with an action gets a toolbar button; there is no overflow menu or pinning, so many extensions
   crowd the toolbar. No context menu on the button, `action.openPopup` is not implemented, and the button is not
   shown in the sidebar layouts' collapsed rail.
-- A way to install packed extensions (`.crx` / `.zip`) and to enable, disable and remove them.
+- A way to install extensions from the browser: a Load Unpacked button (needs a folder picker from the UI) and
+  packed extensions (`.crx` / `.zip`, which needs a zip reader; LibCompress has only deflate).
 - Only one window exists as far as extensions are concerned (window id 1).
 
 ### Housekeeping
@@ -256,6 +262,9 @@ extension's privileges. The three high-severity items below are fixed, and the f
   --load-extension=<unpacked extension dir> <url>` (repeat `--load-extension` for more; log stderr to a file).
 - Tests: `Build/release/bin/TestLibWeb --suite TestExtensionMatchPatterns`, and
   `Build/release/bin/test-web --test-path Tests/LibWeb --filter "*navigation*"` as a regression check.
+- WebDriver tests: `WebDriver --headless --port=<p> --profile-path=<abs dir> --load-extension=<dir>`, then drive
+  `about:extensions` and test pages over HTTP (execute/sync, element click, screenshot). Background pages show up
+  as extra window handles.
 - Headless scripted tests: `--expose-internals-object --headless=screenshot` with a page that calls
   `internals.sendTextThroughUIProcess` (Vimium ignores untrusted events). That flag also fakes user activation in
   the UI process, so clipboard and new-tab behaviour must be confirmed with real input.
