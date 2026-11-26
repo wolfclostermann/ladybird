@@ -289,7 +289,7 @@ private:
     void release_external_url_handler(u64 handler_id);
 
     void ask_user_for_download_path(u64 request_id, ByteString const& file) const;
-    void ask_user_for_extension_folder(u64 request_id) const;
+    void ask_user_for_extension_path(u64 request_id, bool package) const;
     void display_download_confirmation_dialog(StringView download_name, ByteString const& path) const;
     void display_error_dialog(StringView error_message) const;
     void display_openssl_mismatch(String const& curl_openssl_version, String const& linked_openssl_version);

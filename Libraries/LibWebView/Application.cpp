@@ -46,6 +46,7 @@
 #include <LibWebCommon/Page/InputEvent.h>
 #include <LibWebCommon/WebDriver/TimeoutsConfiguration.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/ExtensionPackage.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/CompositorClient.h>
@@ -909,6 +910,20 @@ ByteString Application::extensions_state_path() const
     return LexicalPath::join(profile().paths().data, "Extensions"sv, "extensions.json"sv).string();
 }
 
+// NB: Like extensions.json, the name is never that of an extension's own folder there, which is its ID.
+ByteString Application::extension_packages_path() const
+{
+    return LexicalPath::join(profile().paths().data, "Extensions"sv, "Packed"sv).string();
+}
+
+bool Application::is_unpacked_extension_package(ByteString const& directory) const
+{
+    auto packages = FileSystem::real_path(extension_packages_path());
+    if (packages.is_error())
+        return false;
+    return LexicalPath { directory }.parent().string() == packages.value();
+}
+
 void Application::load_extensions()
 {
     m_extensions.clear();
@@ -1065,6 +1080,14 @@ ErrorOr<void> Application::install_unpacked_extension(StringView directory)
     return start_extension_background_page(m_extensions.last());
 }
 
+ErrorOr<void> Application::install_extension_package(StringView path)
+{
+    // The unpacked files are installed like a folder the user picked, so they are loaded from then on.
+    auto directory = TRY(unpack_extension_package(path, extension_packages_path()));
+    dbgln("Unpacked extension package {} into {}", path, directory);
+    return install_unpacked_extension(directory);
+}
+
 void Application::forget_extension_folder(StringView directory)
 {
     auto folder = ByteString { directory };
@@ -1094,6 +1117,12 @@ ErrorOr<void> Application::remove_extension(StringView id)
     m_installed_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
     m_disabled_extension_ids.remove(removed->id);
     save_extensions_state();
+
+    // A packed extension's unpacked files go too, as nothing else would ever load them.
+    if (is_unpacked_extension_package(removed->directory)) {
+        if (auto result = FileSystem::remove(removed->directory, FileSystem::RecursionMode::Allowed); result.is_error())
+            warnln("Unable to delete the files of extension {}: {}", removed->name, result.error());
+    }
 
     // Like Chromium, what the extension stored goes with it, so installing it again starts afresh.
     auto data_directory = LexicalPath::join(profile().paths().data, "Extensions"sv, removed->id).string();
@@ -3221,7 +3250,7 @@ NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_download_path
     return Core::Promise<ByteString>::rejected(Error::from_errno(ECANCELED));
 }
 
-NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_extension_folder() const
+NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_extension_path(bool) const
 {
     return Core::Promise<ByteString>::rejected(Error::from_errno(ECANCELED));
 }

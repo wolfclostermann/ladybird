@@ -118,10 +118,15 @@ public:
     ErrorOr<void> install_unpacked_extension(StringView directory);
     // Stops loading an extension from a folder that could not be loaded.
     void forget_extension_folder(StringView directory);
-    // Asks the user for the folder of an unpacked extension to install. Rejected if they cancel, or without a UI.
-    virtual NonnullRefPtr<Core::Promise<ByteString>> ask_user_for_extension_folder() const;
+    // Installs a packed extension, a .crx or .zip file, by unpacking it into the profile and loading it from there.
+    ErrorOr<void> install_extension_package(StringView path);
+    // Asks the user for the folder of an unpacked extension to install, or for a packed one's file. Rejected if they
+    // cancel, or without a UI.
+    virtual NonnullRefPtr<Core::Promise<ByteString>> ask_user_for_extension_path(bool package) const;
     // Whether a folder was named by --load-extension, which loads it every time Ladybird starts with the option.
     bool is_extension_folder_from_command_line(ByteString const& directory) const;
+    // Whether a folder is where a packed extension was unpacked into the profile, which removing it deletes.
+    bool is_unpacked_extension_package(ByteString const& directory) const;
     // Opens the file of an extension that a chrome-extension: URL names, for a renderer's page.
     ErrorOr<IPC::File> open_extension_file_for_page(WebContentPage const&, URL::URL const&, Optional<URL::Origin> const& requesting_origin);
     ErrorOr<IPC::File> open_favicon_for_extension(LoadedExtension const&, URL::URL const&, StringView relative_path, ExtensionFileRequester, Optional<URL::Origin> const& requesting_origin);
@@ -561,6 +566,7 @@ private:
     void unload_extension(String const& id);
     ErrorOr<void> start_extension_background_page(LoadedExtension const&);
     ByteString extensions_state_path() const;
+    ByteString extension_packages_path() const;
     void save_extensions_state();
     ByteString content_blocker_list_path(StringView identifier) const;
     ErrorOr<void> save_content_blocker_list(ByteString const& path, ReadonlyBytes);

@@ -161,6 +161,12 @@
                 gap: 16px;
             }
 
+            .header-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
             #install-failure {
                 padding: 16px 20px;
                 color: var(--error);
@@ -265,7 +271,10 @@
     <body>
         <header class="page-header">
             <h1>Extensions</h1>
-            <button id="load-unpacked" class="primary-button">Load Unpacked…</button>
+            <div class="header-actions">
+                <button id="install-package" class="secondary-button">Install from File…</button>
+                <button id="load-unpacked" class="primary-button">Load Unpacked…</button>
+            </div>
         </header>
 
         <div id="install-failure" class="card hidden"></div>
@@ -275,7 +284,8 @@
         <div class="card">
             <div id="extensions"></div>
             <div id="empty" class="hidden">
-                No extensions are installed. Choose Load Unpacked… to install an extension from its folder.
+                No extensions are installed. Choose Load Unpacked… to install an extension from its folder, or
+                Install from File… to install a packed extension (a .crx or .zip file).
             </div>
         </div>
 
@@ -283,7 +293,8 @@
             <form method="dialog">
                 <h2 id="remove-dialog-title" class="dialog-title"></h2>
                 <p class="dialog-message">
-                    This deletes everything it saved, such as its settings. Its folder is left alone.
+                    This deletes everything it saved, such as its settings.
+                    <span id="remove-dialog-folder">Its folder is left alone.</span>
                     <span id="remove-dialog-command-line">
                         Ladybird loads it again the next time it starts with
                         <span class="monospace">--load-extension</span> for its folder.
@@ -308,6 +319,11 @@
                 sendAction("loadUnpacked");
             });
 
+            document.querySelector("#install-package").addEventListener("click", () => {
+                installFailure.classList.add("hidden");
+                sendAction("installPackage");
+            });
+
             // What went wrong when the user last changed an extension, shown under it until they change one again.
             let failure = null;
 
@@ -319,6 +335,8 @@
             function confirmRemoval(extension) {
                 removeDialog.querySelector(".dialog-title").textContent = `Remove “${extension.name}”?`;
                 removeDialog.querySelector("#remove-dialog-command-line").hidden = !extension.fromCommandLine;
+                // A packed extension's files were unpacked into the profile, and go with it.
+                removeDialog.querySelector("#remove-dialog-folder").hidden = extension.packed;
                 removeDialog.returnValue = "";
                 removeDialog.onclose = () => {
                     if (removeDialog.returnValue === "remove") sendAction("removeExtension", extension.id);

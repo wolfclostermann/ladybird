@@ -22,8 +22,8 @@
 namespace WebView {
 
 struct LoadedExtension {
-    // Like Chromium, an unpacked extension's ID derives from the path of its directory, so it stays the same across
-    // runs.
+    // Like Chromium, an unpacked extension's ID derives from the manifest's "key" if it has one, else from the path of
+    // its directory, so it stays the same across runs.
     String id;
     String name;
     String version;

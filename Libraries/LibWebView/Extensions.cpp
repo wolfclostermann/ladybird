@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Base64.h>
 #include <AK/JsonParser.h>
 #include <AK/LexicalPath.h>
 #include <AK/StringBuilder.h>
 #include <LibCore/File.h>
-#include <LibCrypto/Hash/Hash.h>
 #include <LibFileSystem/FileSystem.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
@@ -17,6 +17,7 @@
 #include <LibURL/URL.h>
 #include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebCommon/Extensions/WebAccessibleResources.h>
+#include <LibWebView/ExtensionPackage.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/LocalFileRoot.h>
 #include <LibWebView/Utilities.h>
@@ -63,16 +64,19 @@ String strip_json_comments(StringView json)
 }
 
 // https://chromium.googlesource.com/chromium/src/+/main/components/crx_file/id_util.cc
-// An ID is the first 16 bytes of a SHA-256 digest, written with the letters a to p for the hex digits 0 to f.
-static String extension_id_for_directory(StringView directory)
+// An ID is the first 16 bytes of a SHA-256 digest, written with the letters a to p for the hex digits 0 to f. It is
+// the digest of the manifest's "key" (a developer's public key, in base64) if it has one, else of the directory's path.
+static ErrorOr<String> extension_id_for(JsonObject const& manifest, StringView directory)
 {
-    auto digest = Crypto::Hash::digest(Crypto::Hash::HashKind::SHA256, directory.bytes());
-    StringBuilder builder;
-    for (auto byte : digest.bytes().slice(0, 16)) {
-        builder.append(static_cast<char>('a' + (byte >> 4)));
-        builder.append(static_cast<char>('a' + (byte & 0xf)));
+    if (auto key = manifest.get("key"sv); key.has_value()) {
+        if (!key->is_string())
+            return Error::from_string_literal("manifest.json has a \"key\" that is not a string");
+        auto public_key = decode_base64(key->as_string());
+        if (public_key.is_error() || public_key.value().is_empty())
+            return Error::from_string_literal("manifest.json has a \"key\" that is not valid base64");
+        return extension_id_for_public_key(public_key.value());
     }
-    return MUST(builder.to_string());
+    return extension_id_for_public_key(directory.bytes());
 }
 
 static ErrorOr<ByteBuffer> read_file(StringView directory, StringView relative_path)
@@ -127,7 +131,7 @@ ErrorOr<LoadedExtension> load_unpacked_extension(StringView directory_path)
         return Error::from_string_literal("manifest.json has no supported manifest_version");
 
     LoadedExtension extension;
-    extension.id = extension_id_for_directory(directory);
+    extension.id = TRY(extension_id_for(manifest, directory));
     extension.name = manifest.get_string("name"sv).value_or(extension.id);
     extension.version = manifest.get_string("version"sv).value_or({});
     extension.directory = directory;

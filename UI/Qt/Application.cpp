@@ -2527,19 +2527,24 @@ void Application::ask_user_for_download_path(u64 request_id, ByteString const& f
     dialog->open();
 }
 
-void Application::ask_user_for_extension_folder(u64 request_id) const
+void Application::ask_user_for_extension_path(u64 request_id, bool package) const
 {
-    auto* dialog = new QFileDialog(m_active_window, "Select the folder of an unpacked extension", QDir::homePath());
+    auto* dialog = new QFileDialog(m_active_window, package ? "Select a packed extension" : "Select the folder of an unpacked extension", QDir::homePath());
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setFileMode(QFileDialog::Directory);
-    dialog->setOption(QFileDialog::ShowDirsOnly);
+    if (package) {
+        dialog->setFileMode(QFileDialog::ExistingFile);
+        dialog->setNameFilters({ "Extensions (*.crx *.zip)", "All files (*)" });
+    } else {
+        dialog->setFileMode(QFileDialog::Directory);
+        dialog->setOption(QFileDialog::ShowDirsOnly);
+    }
 
     QObject::connect(dialog, &QDialog::finished, [request_id, dialog = QPointer { dialog }](auto result) {
         Optional<ByteString> path;
         if (result == QDialog::Accepted && dialog && !dialog->selectedFiles().isEmpty())
             path = ak_byte_string_from_qstring(dialog->selectedFiles().first());
         if (auto* hub = HubConnection::the_if_connected())
-            hub->async_answer_extension_folder(request_id, move(path));
+            hub->async_answer_extension_path(request_id, move(path));
     });
 
     dialog->open();

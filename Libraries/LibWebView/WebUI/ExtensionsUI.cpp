@@ -40,7 +40,10 @@ void ExtensionsUI::register_interfaces()
         retry_extension_load(data);
     });
     register_interface("loadUnpacked"sv, [this](auto const&) {
-        load_unpacked();
+        install_extension(false);
+    });
+    register_interface("installPackage"sv, [this](auto const&) {
+        install_extension(true);
     });
     register_interface("forgetExtensionFolder"sv, [this](auto const& data) {
         forget_extension_folder(data);
@@ -94,6 +97,7 @@ static JsonObject serialize_extension(LoadedExtension const& extension, bool ena
     serialized.set("description"sv, manifest.get_string("description"sv).value_or({}));
     serialized.set("directory"sv, String::from_utf8_with_replacement_character(extension.directory));
     serialized.set("fromCommandLine"sv, Application::the().is_extension_folder_from_command_line(extension.directory));
+    serialized.set("packed"sv, Application::the().is_unpacked_extension_package(extension.directory));
     serialized.set("manifestVersion"sv, manifest.get_integer<i64>("manifest_version"sv).value_or(0));
     if (auto icon = icon_data_url(extension); icon.has_value())
         serialized.set("icon"sv, icon.release_value());
@@ -226,24 +230,24 @@ void ExtensionsUI::retry_extension_load(JsonValue const& data)
     load_extensions();
 }
 
-void ExtensionsUI::load_unpacked()
+void ExtensionsUI::install_extension(bool package)
 {
     if (!has_client())
         return;
 
-    // Only a click on the page asks for a folder.
+    // Only a click on the page asks for a folder or file.
     auto* page = client().page(page_id());
     if (!page || !page->consume_transient_user_activation())
         return;
 
-    Application::the().ask_user_for_extension_folder()->when_resolved([weak_this = make_weak_ptr<ExtensionsUI>()](ByteString const& directory) {
-        auto result = Application::the().install_unpacked_extension(directory);
+    Application::the().ask_user_for_extension_path(package)->when_resolved([weak_this = make_weak_ptr<ExtensionsUI>(), package](ByteString const& path) {
+        auto result = package ? Application::the().install_extension_package(path) : Application::the().install_unpacked_extension(path);
         auto self = weak_this.strong_ref();
         if (!self)
             return;
         if (result.is_error()) {
             JsonObject message;
-            message.set("directory"sv, String::from_utf8_with_replacement_character(directory));
+            message.set("directory"sv, String::from_utf8_with_replacement_character(path));
             message.set("error"sv, MUST(String::formatted("{}", result.error())));
             self->async_send_message("installFailed"sv, move(message));
         }

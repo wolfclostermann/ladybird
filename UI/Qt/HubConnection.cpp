@@ -404,9 +404,9 @@ void HubConnection::app_ask_user_for_download_path(u64 request_id, ByteString fi
     Application::the().ask_user_for_download_path(request_id, file);
 }
 
-void HubConnection::app_ask_user_for_extension_folder(u64 request_id)
+void HubConnection::app_ask_user_for_extension_path(u64 request_id, bool package)
 {
-    Application::the().ask_user_for_extension_folder(request_id);
+    Application::the().ask_user_for_extension_path(request_id, package);
 }
 
 void HubConnection::download_added(Hub::DownloadState download)
