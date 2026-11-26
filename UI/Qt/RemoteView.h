@@ -368,6 +368,7 @@ public:
     Function<void(Web::HTML::ActivateTab, Web::HTML::WebViewHints, u64 view_id)> on_open_new_view;
     decltype(Hub::View::on_activate_tab) on_activate_tab;
     decltype(Hub::View::on_move_tab) on_move_tab;
+    decltype(Hub::View::on_pin_tab) on_pin_tab;
     decltype(Hub::View::on_close) on_close;
     // The Hub asks to discard the tab of the view, which the tab may decline.
     Function<void()> on_discard;

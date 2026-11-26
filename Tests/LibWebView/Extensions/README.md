@@ -15,6 +15,8 @@ kept so that the checks can be repeated.
   - `action-ext`, `popup-ext`, `nopopup-ext`: `chrome.action` (badges, per-tab state, `onClicked`, popups,
     `openPopup`).
   - `order-ext`: tab order and `tabs.move` (goes with `sites/pages`).
+  - `pin-ext`: `tabs.update({pinned})`, `tabs.onUpdated` and `tabs.query({pinned})`. Pins the active tab 3 seconds
+    after start and unpins it again, logging `PIN ...` lines. Needs the Qt UI (headless views can't be pinned).
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
   - `csp-ext`: content scripts on a page with a strict CSP and Trusted Types (`sites/csp-site`, served by
     `tools/csp-server.py`).

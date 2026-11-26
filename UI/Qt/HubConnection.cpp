@@ -948,6 +948,12 @@ void HubConnection::view_move_tab(u64 view_id, Optional<u64> target_view_id)
         view->on_move_tab(target_view_id);
 }
 
+void HubConnection::view_pin_tab(u64 view_id, bool pinned)
+{
+    if (auto* view = RemoteView::find(view_id); view && view->on_pin_tab)
+        view->on_pin_tab(pinned);
+}
+
 void HubConnection::view_discard(u64 view_id)
 {
     if (auto* view = RemoteView::find(view_id); view && view->on_discard)

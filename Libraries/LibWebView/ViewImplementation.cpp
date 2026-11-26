@@ -865,7 +865,10 @@ void ViewImplementation::report_permission_presence()
 //     tab is asked about again once it is unpinned.
 void ViewImplementation::set_pinned(bool pinned)
 {
+    auto changed = m_pinned != pinned;
     m_pinned = pinned;
+    if (changed)
+        Application::the().extension_host().view_did_change_pinned(*this);
     if (pinned && m_discard_requested) {
         m_discard_requested = false;
         TabDiscarder::did_hide_a_tab();

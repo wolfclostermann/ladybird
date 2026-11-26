@@ -312,6 +312,13 @@ void Tab::initialize(Optional<u64> hub_view_id)
         m_window->move_tab(index, new_index);
     };
 
+    view().on_pin_tab = [this](bool pinned) {
+        if (pinned)
+            m_window->pin_tab(*this);
+        else
+            m_window->unpin_tab(*this);
+    };
+
     view().on_discard = [this] {
         m_window->discard_tab(*this);
     };

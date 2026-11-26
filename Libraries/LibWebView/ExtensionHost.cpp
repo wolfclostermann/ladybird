@@ -505,6 +505,8 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
             auto& view = views[i];
             if (auto active = query.get_bool("active"sv); active.has_value() && *active != view_is_active(view))
                 continue;
+            if (auto pinned = query.get_bool("pinned"sv); pinned.has_value() && *pinned != view.is_pinned())
+                continue;
             if (auto id = query.get_integer<i64>("windowId"sv); id.has_value() && *id >= 0 && *id != window_id)
                 continue;
 
@@ -1147,8 +1149,17 @@ void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& exten
         }
         if (auto muted = properties.get_bool("muted"sv); muted.has_value())
             view->set_page_mute_state(*muted ? Web::HTML::MuteState::Muted : Web::HTML::MuteState::Unmuted);
-        // FIXME: Pin tabs, once the UI can be told to.
-        return complete(tab_result(*view));
+        auto pinned = properties.get_bool("pinned"sv);
+        if (pinned.has_value() && *pinned != view->is_pinned() && view->on_pin_tab)
+            view->on_pin_tab(*pinned);
+
+        // The UI hasn't pinned or unpinned the tab yet, so the tab reports the state it is about to have.
+        auto tab = tab_object_with_id(static_cast<i64>(view->view_id()));
+        if (!tab.has_value())
+            return complete(undefined_result());
+        if (pinned.has_value() && view->on_pin_tab)
+            tab->set("pinned"sv, *pinned);
+        return complete(result(tab.release_value()));
     }
 
     if (function == "reload"sv) {
@@ -1603,6 +1614,15 @@ void ExtensionHost::view_did_change_title(ViewImplementation& view)
         return;
     JsonObject change_info;
     change_info.set("title"sv, view.title().to_well_formed_utf8());
+    tab_did_update(view, move(change_info));
+}
+
+void ExtensionHost::view_did_change_pinned(ViewImplementation& view)
+{
+    if (!dispatches_events() || !is_tab_view(view) || !m_announced_tabs.contains(view.view_id()))
+        return;
+    JsonObject change_info;
+    change_info.set("pinned"sv, view.is_pinned());
     tab_did_update(view, move(change_info));
 }
 

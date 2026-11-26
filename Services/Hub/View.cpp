@@ -325,6 +325,11 @@ void View::forward_callbacks_to_ui(bool is_tab)
             ui->async_view_move_tab(view_id(), target_view_id);
     };
 
+    on_pin_tab = [this](bool pinned) {
+        if (auto* ui = ConnectionFromUI::the())
+            ui->async_view_pin_tab(view_id(), pinned);
+    };
+
     on_close = [this] {
         if (auto* ui = ConnectionFromUI::the()) {
             push_state_to_ui();

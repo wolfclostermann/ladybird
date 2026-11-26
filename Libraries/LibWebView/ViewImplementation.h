@@ -687,6 +687,8 @@ public:
     // Asks the UI to move the view's tab to where the tab of the view with the given ID is now, or to the end of its
     // window without one.
     Function<void(Optional<u64> target_view_id)> on_move_tab;
+    // Asks the UI to pin or unpin the view's tab. The UI reports the change back through set_pinned().
+    Function<void(bool pinned)> on_pin_tab;
     Function<void()> on_close;
     Function<void(URL::URL const&)> on_link_hover;
     Function<void()> on_link_unhover;

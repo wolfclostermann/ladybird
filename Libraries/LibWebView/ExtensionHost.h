@@ -60,6 +60,7 @@ public:
     void navigable_did_navigate_within_document(CanonicalNavigable const&, URL::URL const& previous_url);
     void view_did_finish_load(ViewImplementation&);
     void view_did_change_title(ViewImplementation&);
+    void view_did_change_pinned(ViewImplementation&);
     void view_will_be_destroyed(u64 view_id);
     void active_view_did_change(Optional<u64> view_id);
 
