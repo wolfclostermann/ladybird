@@ -58,7 +58,11 @@ public:
     void destroy_all_views() { m_views.clear(); }
 
     void set_active_view(Optional<u64> view_id);
-    void set_tab_order(Vector<u64> view_ids) { m_tab_order = move(view_ids); }
+    void set_tab_order(Vector<u64> view_ids)
+    {
+        auto previous_order = exchange(m_tab_order, move(view_ids));
+        extension_host().tab_order_did_change(previous_order, m_tab_order);
+    }
 
     // The UI has made its first windows and asked for what they start out showing.
     void ui_did_start();

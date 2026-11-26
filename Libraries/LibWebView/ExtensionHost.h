@@ -61,6 +61,8 @@ public:
     void view_did_finish_load(ViewImplementation&);
     void view_did_change_title(ViewImplementation&);
     void view_did_change_pinned(ViewImplementation&);
+    // The UI reports the order of its tab strips after each change, which tells of the tabs moved since.
+    void tab_order_did_change(ReadonlySpan<u64> previous_order, ReadonlySpan<u64> order);
     void view_will_be_destroyed(u64 view_id);
     void active_view_did_change(Optional<u64> view_id);
 
@@ -156,6 +158,8 @@ private:
 
     // The tabs that extensions were told of, which they are told are gone once they are.
     HashTable<u64> m_announced_tabs;
+    // The tabs that tabs.move or tabs.update asked the UI to move, until it reports the new order.
+    HashTable<u64> m_requested_tab_moves;
     Optional<u64> m_active_view_id;
 
     // Like Chromium, which holds messages for a service worker until it starts, messages wait for a background page

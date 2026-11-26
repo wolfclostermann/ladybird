@@ -9,6 +9,7 @@
 #include <AK/ByteBuffer.h>
 #include <AK/ByteString.h>
 #include <AK/Error.h>
+#include <AK/HashTable.h>
 #include <AK/JsonObject.h>
 #include <AK/String.h>
 #include <AK/JsonArray.h>
@@ -134,5 +135,15 @@ WEBVIEW_API String serialize_extensions_for_web_content(Vector<LoadedExtension> 
 
 // JSON with the comments that Chromium accepts in a manifest taken out.
 WEBVIEW_API String strip_json_comments(StringView);
+
+struct TabMove {
+    u64 view_id { 0 };
+    size_t from_index { 0 };
+    size_t to_index { 0 };
+};
+
+// The moves, one after another, that took the tabs from one order to the other, as tabs.onMoved tells of them. Both
+// orders hold the same tabs. The tabs in requested_moves are taken to have moved.
+WEBVIEW_API Vector<TabMove> tab_moves_between(ReadonlySpan<u64> before, ReadonlySpan<u64> after, HashTable<u64> const& requested_moves);
 
 }

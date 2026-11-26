@@ -1112,13 +1112,15 @@ void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& exten
             Optional<u64> target_view_id;
             if (new_index < order.size() - 1)
                 target_view_id = order[new_index]->view_id();
-            if (new_index != *old_index && view->on_move_tab)
+            if (new_index != *old_index && view->on_move_tab) {
+                m_requested_tab_moves.set(view->view_id());
                 view->on_move_tab(target_view_id);
+            }
 
             order.remove(*old_index);
             order.insert(new_index, view);
         }
-        // FIXME: Fire tabs.onMoved, also for the moves the user makes.
+        // tabs.onMoved fires once the UI reports the new order, as for the moves the user makes.
 
         // The UI hasn't moved the tabs yet, so the tabs report the places they are about to have.
         JsonArray tabs;
@@ -1150,8 +1152,11 @@ void ExtensionHost::tabs_call(WebContentPage& page, LoadedExtension const& exten
         if (auto muted = properties.get_bool("muted"sv); muted.has_value())
             view->set_page_mute_state(*muted ? Web::HTML::MuteState::Muted : Web::HTML::MuteState::Unmuted);
         auto pinned = properties.get_bool("pinned"sv);
-        if (pinned.has_value() && *pinned != view->is_pinned() && view->on_pin_tab)
+        if (pinned.has_value() && *pinned != view->is_pinned() && view->on_pin_tab) {
+            // Pinning moves the tab to the end of the pinned tabs, and unpinning may move it to after them.
+            m_requested_tab_moves.set(view->view_id());
             view->on_pin_tab(*pinned);
+        }
 
         // The UI hasn't pinned or unpinned the tab yet, so the tab reports the state it is about to have.
         auto tab = tab_object_with_id(static_cast<i64>(view->view_id()));
@@ -1624,6 +1629,47 @@ void ExtensionHost::view_did_change_pinned(ViewImplementation& view)
     JsonObject change_info;
     change_info.set("pinned"sv, view.is_pinned());
     tab_did_update(view, move(change_info));
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onMoved
+void ExtensionHost::tab_order_did_change(ReadonlySpan<u64> previous_order, ReadonlySpan<u64> order)
+{
+    auto requested_moves = move(m_requested_tab_moves);
+    if (!dispatches_events())
+        return;
+
+    // Only the tabs in both orders count: tabs that opened or closed in between aren't moves, and onCreated and
+    // onRemoved tell of them.
+    auto is_tab = [&](u64 view_id) {
+        auto view = ViewImplementation::find_view_by_id(view_id);
+        return view.has_value() && is_tab_view(*view);
+    };
+    Vector<u64> before;
+    for (auto view_id : previous_order) {
+        if (order.contains_slow(view_id) && is_tab(view_id))
+            before.append(view_id);
+    }
+    Vector<u64> after;
+    for (auto view_id : order) {
+        if (before.contains_slow(view_id))
+            after.append(view_id);
+    }
+    if (before == after)
+        return;
+
+    auto tab_did_move = [&](u64 view_id, size_t from_index, size_t to_index) {
+        JsonObject move_info;
+        move_info.set("windowId"sv, window_id);
+        move_info.set("fromIndex"sv, static_cast<i64>(from_index));
+        move_info.set("toIndex"sv, static_cast<i64>(to_index));
+        JsonArray arguments;
+        arguments.must_append(static_cast<i64>(view_id));
+        arguments.must_append(move(move_info));
+        broadcast_to_extension_pages("tabs.onMoved"sv, arguments);
+    };
+
+    for (auto const& tab_move : tab_moves_between(before, after, requested_moves))
+        tab_did_move(tab_move.view_id, tab_move.from_index, tab_move.to_index);
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onRemoved

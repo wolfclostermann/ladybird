@@ -460,4 +460,57 @@ String serialize_extensions_for_web_content(Vector<LoadedExtension> const& exten
     return array.serialized();
 }
 
+// https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onMoved
+Vector<TabMove> tab_moves_between(ReadonlySpan<u64> before, ReadonlySpan<u64> after, HashTable<u64> const& requested_moves)
+{
+    VERIFY(before.size() == after.size());
+    Vector<u64> order { before };
+
+    // The tabs that stayed put are the most that kept their order. The tabs an extension just asked to move are
+    // taken to have moved, which also settles which of two neighbours moved when they swap places.
+    Vector<u64> candidates;
+    Vector<size_t> old_indices;
+    for (auto view_id : after) {
+        if (!requested_moves.contains(view_id)) {
+            candidates.append(view_id);
+            old_indices.append(order.find_first_index(view_id).value());
+        }
+    }
+    // The longest run of candidates whose old places increase, by dynamic programming (there are only so many tabs).
+    Vector<size_t> run_length;
+    Vector<Optional<size_t>> previous_in_run;
+    Optional<size_t> run_end;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        run_length.append(1);
+        previous_in_run.append({});
+        for (size_t j = 0; j < i; ++j) {
+            if (old_indices[j] < old_indices[i] && run_length[j] + 1 > run_length[i]) {
+                run_length[i] = run_length[j] + 1;
+                previous_in_run[i] = j;
+            }
+        }
+        if (!run_end.has_value() || run_length[i] > run_length[*run_end])
+            run_end = i;
+    }
+    HashTable<u64> stayed;
+    for (auto i = run_end; i.has_value(); i = previous_in_run[*i])
+        stayed.set(candidates[*i]);
+
+    // Each moved tab, from the first place on, goes right after the tab before it in the new order, as Chromium tells
+    // of the moves of tabs.move with several tabs.
+    Vector<TabMove> moves;
+    for (size_t to_index = 0; to_index < after.size(); ++to_index) {
+        auto view_id = after[to_index];
+        if (stayed.contains(view_id))
+            continue;
+        auto from_index = order.find_first_index(view_id).value();
+        order.remove(from_index);
+        auto new_index = to_index == 0 ? 0 : order.find_first_index(after[to_index - 1]).value() + 1;
+        order.insert(new_index, view_id);
+        if (from_index != new_index)
+            moves.append({ view_id, from_index, new_index });
+    }
+    return moves;
+}
+
 }

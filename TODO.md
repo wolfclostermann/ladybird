@@ -29,7 +29,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] `search.query`, for searching the web from `o`. Fails when no search engine is chosen (Ladybird's default).
 - [x] The `chrome-extension://<id>/_favicon/` endpoint, for favicons in the Vomnibar. No default icon for pages without one.
 - [x] `tabs.update({pinned})`, for Vimium's pin toggle. Fires `tabs.onUpdated` with `pinned`; `tabs.query({pinned})` works.
-- [ ] `tabs.onMoved`, also for moves the user makes, and moving tabs between windows.
+- [x] `tabs.onMoved`, also for moves the user makes (worked out from the tab strip order the UI reports).
+- [ ] Moving tabs between windows (`tabs.move` with `windowId`, `tabs.onAttached`/`onDetached`); there is one window, id 1.
 - [ ] `sessions.getRecentlyClosed`, and `sessions.restore` by session ID.
 
 ## Next phase: UI

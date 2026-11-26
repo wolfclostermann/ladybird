@@ -520,3 +520,41 @@ TEST_CASE(match_patterns_cover_narrower_ones)
     EXPECT(!WebView::match_pattern_covers("https://www.example.org/*"sv, "https://*.example.org/*"sv));
     EXPECT(!WebView::match_pattern_covers("*://*/*"sv, "file:///*"sv));
 }
+
+static ByteString describe(Vector<WebView::TabMove> const& moves)
+{
+    StringBuilder builder;
+    for (auto const& tab_move : moves)
+        builder.appendff("{}:{}->{} ", tab_move.view_id, tab_move.from_index, tab_move.to_index);
+    return builder.to_byte_string().trim_whitespace();
+}
+
+TEST_CASE(tab_moves_of_a_dragged_tab)
+{
+    // The user drags tab 1 two places to the right, and tab 5 back to the front.
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 5> { 1, 2, 3, 4, 5 }, Array<u64, 5> { 2, 3, 1, 4, 5 }, {})), "1:0->2"sv);
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 5> { 1, 2, 3, 4, 5 }, Array<u64, 5> { 5, 1, 2, 3, 4 }, {})), "5:4->0"sv);
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 3> { 1, 2, 3 }, Array<u64, 3> { 1, 2, 3 }, {})), ""sv);
+}
+
+TEST_CASE(tab_moves_prefer_the_tabs_asked_to_move)
+{
+    // Two neighbours swapping places could be either moving; the one an extension moved is the one that moved.
+    HashTable<u64> requested;
+    requested.set(2);
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 3> { 1, 2, 3 }, Array<u64, 3> { 2, 1, 3 }, requested)), "2:1->0"sv);
+    requested.clear();
+    requested.set(1);
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 3> { 1, 2, 3 }, Array<u64, 3> { 2, 1, 3 }, requested)), "1:0->1"sv);
+}
+
+TEST_CASE(tab_moves_of_several_tabs_follow_chromium)
+{
+    // chrome.tabs.move([d, b], { index: -1 }) on d x b a c: Chromium tells of d going to the end, then b.
+    HashTable<u64> requested;
+    requested.set(4);
+    requested.set(2);
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 5> { 4, 9, 2, 1, 3 }, Array<u64, 5> { 9, 1, 3, 4, 2 }, requested)), "4:0->4 2:1->4"sv);
+    // Without knowing, the fewest tabs moved.
+    EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 5> { 4, 9, 2, 1, 3 }, Array<u64, 5> { 9, 1, 3, 4, 2 }, {})), "4:0->4 2:1->4"sv);
+}
