@@ -23,6 +23,7 @@
 #include <WebDriver/Session.h>
 
 static Vector<ByteString> certificates;
+static Vector<ByteString> extension_paths;
 
 static ErrorOr<Core::Process> launch_process(StringView application, ReadonlySpan<ByteString> arguments)
 {
@@ -88,6 +89,9 @@ static Vector<ByteString> create_arguments(ByteString const& webdriver_endpoint,
     if (auto* stats_log = Core::StatsLog::the())
         arguments.append(ByteString::formatted("--stats-log-dir={}", stats_log->directory()));
 
+    for (auto const& path : extension_paths)
+        arguments.append(ByteString::formatted("--load-extension={}", path));
+
     arguments.append("about:blank"sv);
     return arguments;
 }
@@ -122,6 +126,7 @@ ErrorOr<int> ladybird_main(Main::Arguments arguments)
     args_parser.add_option(listen_address, "IP address to listen on", "listen-address", 'l', "listen_address");
     args_parser.add_option(port, "Port to listen on", "port", 'p', "port");
     args_parser.add_option(certificates, "Path to a certificate file", "certificate", 'C', "certificate");
+    args_parser.add_option(extension_paths, "Load the unpacked extension in a folder into the browser", "load-extension", 0, "path");
     args_parser.add_option(expose_experimental_interfaces, "Expose experimental IDL interfaces", "expose-experimental-interfaces");
     args_parser.add_option(expose_internals_object, "Expose internals object", "expose-internals-object");
     args_parser.add_option(force_cpu_painting, "Launch browser with GPU painting disabled", "force-cpu-painting");
