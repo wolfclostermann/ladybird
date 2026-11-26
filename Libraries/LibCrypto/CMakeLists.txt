@@ -6,6 +6,7 @@ set(SOURCES
     Curves/EdwardsCurve.cpp
     Hash/Hash.cpp
     PK/EC.cpp
+    PK/PublicKey.cpp
     PK/RSA.cpp
 )
 
