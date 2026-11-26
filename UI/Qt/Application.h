@@ -290,6 +290,7 @@ private:
 
     void ask_user_for_download_path(u64 request_id, ByteString const& file) const;
     void ask_user_for_extension_path(u64 request_id, bool package) const;
+    void ask_user_to_grant_extension_permissions(u64 request_id, String const& extension_name, Vector<String> const& descriptions) const;
     void display_download_confirmation_dialog(StringView download_name, ByteString const& path) const;
     void display_error_dialog(StringView error_message) const;
     void display_openssl_mismatch(String const& curl_openssl_version, String const& linked_openssl_version);

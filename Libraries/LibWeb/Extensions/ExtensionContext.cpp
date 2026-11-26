@@ -55,14 +55,15 @@ static constexpr StringView runtime_source = R"~~~(
 
     let runtime;
 
-    function invoke(api, args) {
+    // Calls an API, unless refusal says why the call fails without making it.
+    function invoke(api, args, refusal) {
         let callback;
         if (args.length > 0 && typeof args[args.length - 1] === "function")
             callback = args.pop();
         while (args.length > 0 && args[args.length - 1] === undefined)
             args.pop();
 
-        const promise = nativeCall(api, JSON.stringify(args)).then(decode);
+        const promise = refusal ? Promise.reject(refusal) : nativeCall(api, JSON.stringify(args)).then(decode);
         if (!callback)
             return promise;
 
@@ -199,7 +200,15 @@ static constexpr StringView runtime_source = R"~~~(
                 "setBadgeBackgroundColor", "getBadgeBackgroundColor", "setBadgeTextColor", "getBadgeTextColor",
                 "setPopup", "getPopup", "enable", "disable", "isEnabled", "getUserSettings", "openPopup"], ["onClicked"]),
             commands: namespace("commands", ["getAll"], ["onCommand"]),
-            permissions: namespace("permissions", ["contains", "getAll", "request", "remove"], ["onAdded", "onRemoved"]),
+            permissions: namespace("permissions", ["contains", "getAll", "remove"], ["onAdded", "onRemoved"], {
+                // Like Chromium, which asks the user only when they did something that led to the request.
+                // https://developer.chrome.com/docs/extensions/reference/api/permissions#method-request
+                request(...args) {
+                    const refusal = navigator.userActivation.isActive
+                        ? undefined : new Error("This function must be called during a user gesture");
+                    return invoke("permissions.request", args, refusal);
+                },
+            }),
             contextMenus: namespace("contextMenus", ["create", "update", "remove", "removeAll"], ["onClicked"]),
             alarms: namespace("alarms", ["create", "get", "getAll", "clear", "clearAll"], ["onAlarm"]),
             offscreen: namespace("offscreen", ["createDocument", "closeDocument", "hasDocument"]),
@@ -250,8 +259,9 @@ static constexpr StringView runtime_source = R"~~~(
     }
 
     // https://developer.chrome.com/docs/extensions/reference/permissions-list
-    // The namespaces that need a permission are there only with it.
-    const permissions = Array.isArray(manifest.permissions) ? manifest.permissions : [];
+    // The namespaces that need a permission are there only with it, or if the manifest lists it among the optional
+    // permissions, which the user may grant later. Until then, the UI process refuses their calls.
+    const permissions = [manifest.permissions, manifest.optional_permissions].flatMap(list => Array.isArray(list) ? list : []);
     for (const name of ["storage", "webNavigation", "scripting", "history", "bookmarks", "sessions", "search",
         "notifications", "contextMenus", "alarms", "offscreen"]) {
         if (!permissions.includes(name))

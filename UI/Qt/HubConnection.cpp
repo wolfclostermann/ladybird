@@ -409,6 +409,11 @@ void HubConnection::app_ask_user_for_extension_path(u64 request_id, bool package
     Application::the().ask_user_for_extension_path(request_id, package);
 }
 
+void HubConnection::app_ask_user_to_grant_extension_permissions(u64 request_id, String extension_name, Vector<String> descriptions)
+{
+    Application::the().ask_user_to_grant_extension_permissions(request_id, extension_name, descriptions);
+}
+
 void HubConnection::download_added(Hub::DownloadState download)
 {
     RemoteDownloads::the().did_add(download);

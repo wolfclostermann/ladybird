@@ -122,6 +122,7 @@
 #include <QMimeData>
 #include <QMimeDatabase>
 #include <QPointer>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QScreen>
 #include <QShortcut>
@@ -2545,6 +2546,32 @@ void Application::ask_user_for_extension_path(u64 request_id, bool package) cons
             path = ak_byte_string_from_qstring(dialog->selectedFiles().first());
         if (auto* hub = HubConnection::the_if_connected())
             hub->async_answer_extension_path(request_id, move(path));
+    });
+
+    dialog->open();
+}
+
+// Like Chromium's prompt for permissions.request, which lists what the extension would be allowed to do.
+void Application::ask_user_to_grant_extension_permissions(u64 request_id, String const& extension_name, Vector<String> const& descriptions) const
+{
+    auto* dialog = new QMessageBox(m_active_window);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setIcon(QMessageBox::Question);
+    dialog->setWindowTitle("Extension permissions");
+    dialog->setText(qstring_from_ak_string(MUST(String::formatted("\u201C{}\u201D wants additional permissions", extension_name))));
+    StringBuilder details;
+    details.append("It could:"sv);
+    for (auto const& description : descriptions)
+        details.appendff("\n\u2022 {}", description);
+    dialog->setInformativeText(qstring_from_ak_string(details.to_string_without_validation()));
+    auto* allow = dialog->addButton("Allow", QMessageBox::AcceptRole);
+    // Denying is the default, so that a stray Return grants nothing.
+    dialog->setDefaultButton(dialog->addButton("Deny", QMessageBox::RejectRole));
+
+    QObject::connect(dialog, &QMessageBox::finished, [request_id, dialog = QPointer { dialog }, allow = QPointer { allow }](auto) {
+        bool granted = dialog && allow && dialog->clickedButton() == allow;
+        if (auto* hub = HubConnection::the_if_connected())
+            hub->async_answer_extension_permissions(request_id, granted);
     });
 
     dialog->open();

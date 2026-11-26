@@ -208,9 +208,16 @@ extension's privileges. The three high-severity items below are fixed, and the f
    `sessions`, `search`, `scripting`, `webNavigation`, ...) exist only with it, and the browser process refuses calls
    without it. `scripting.*` needs host permissions for every frame it touches (`allFrames` skips the rest). Tab URLs,
    titles and favicons are only shown with `tabs` or host access, in results, `sender.tab` and `tabs` events;
-   `webNavigation` events need their permission; `permissions.contains`/`getAll` answer from the manifest. Not yet:
-   `activeTab` (no toolbar button or commands to grant it), optional permissions (`permissions.request`), and the
-   per-site "allow access to file URLs" switch Chromium has.
+   `webNavigation` events need their permission.
+   `activeTab`: clicking an extension's toolbar button gives it the tab's origin (http/https only) for scripting and
+   seeing the tab, until the tab goes to another origin or closes. There are no keyboard commands or context menu
+   items yet, which also grant it in Chromium.
+   Optional permissions: `permissions.request` (needs user activation) asks the user in a Qt dialog, and grants persist
+   in `extensions.json` under `"granted"` until `permissions.remove` or removing the extension. `contains`/`getAll`
+   count them, `onAdded`/`onRemoved` fire. Without a UI (WebDriver) requests are declined. A requested host may be
+   narrower than the declared optional one (`https://www.example.org/*` under `https://*.example.org/*`), see
+   `match_pattern_covers`. Not yet: the per-site "allow access to file URLs" switch Chromium has, and showing or
+   revoking granted permissions on about:extensions.
 
 ### Medium
 

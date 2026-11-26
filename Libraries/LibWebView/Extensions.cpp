@@ -343,14 +343,49 @@ ErrorOr<IPC::File> file_with_contents(ReadonlyBytes contents)
     return IPC::File::adopt_fd(fds[0]);
 }
 
-bool extension_has_permission(LoadedExtension const& extension, StringView permission)
-{
-    return strings_of(extension.manifest, "permissions"sv).contains_slow(permission);
-}
-
 static bool is_match_pattern(StringView string)
 {
     return string == "<all_urls>"sv || string.contains("://"sv);
+}
+
+bool extension_has_permission(LoadedExtension const& extension, StringView permission)
+{
+    return strings_of(extension.manifest, "permissions"sv).contains_slow(permission) || extension.granted_permissions.contains_slow(permission);
+}
+
+static ExtensionPermissions permissions_in(LoadedExtension const& extension, StringView permissions_key, StringView host_permissions_key)
+{
+    ExtensionPermissions result;
+    for (auto& permission : strings_of(extension.manifest, permissions_key))
+        (is_match_pattern(permission) ? result.origins : result.permissions).append(move(permission));
+    result.origins.extend(strings_of(extension.manifest, host_permissions_key));
+    return result;
+}
+
+bool match_pattern_covers(StringView held, StringView wanted)
+{
+    if (held == wanted || held == "<all_urls>"sv)
+        return true;
+    if (held == "*://*/*"sv)
+        return wanted.starts_with("http://"sv) || wanted.starts_with("https://"sv) || wanted.starts_with("*://"sv);
+    auto separator = wanted.find("://"sv);
+    if (!separator.has_value() || wanted.substring_view(0, *separator).contains('*'))
+        return false;
+    auto host_and_path = wanted.substring_view(*separator + 3);
+    if (host_and_path.starts_with('*'))
+        return false;
+    auto url = URL::Parser::basic_parse(MUST(MUST(String::from_utf8(wanted)).replace("*"sv, ""sv, ReplaceMode::All)));
+    return url.has_value() && Web::Extensions::match_pattern_matches(MUST(String::from_utf8(held)), *url);
+}
+
+ExtensionPermissions required_permissions_of(LoadedExtension const& extension)
+{
+    return permissions_in(extension, "permissions"sv, "host_permissions"sv);
+}
+
+ExtensionPermissions optional_permissions_of(LoadedExtension const& extension)
+{
+    return permissions_in(extension, "optional_permissions"sv, "optional_host_permissions"sv);
 }
 
 bool extension_has_host_access(LoadedExtension const& extension, URL::URL const& url, HostAccess access)
@@ -364,6 +399,7 @@ bool extension_has_host_access(LoadedExtension const& extension, URL::URL const&
         if (is_match_pattern(permission))
             patterns.append(move(permission));
     }
+    patterns.extend(extension.granted_origins);
     auto matches = [&](String const& pattern) { return Web::Extensions::match_pattern_matches(pattern, url); };
     if (any_of(patterns, matches))
         return true;

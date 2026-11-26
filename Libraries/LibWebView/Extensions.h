@@ -32,6 +32,11 @@ struct LoadedExtension {
 
     // The content scripts, with the sources of their files, as the WebContent processes take them.
     JsonArray content_scripts;
+
+    // The optional permissions and host permissions the user granted, with permissions.request.
+    // https://developer.chrome.com/docs/extensions/reference/api/permissions
+    Vector<String> granted_permissions;
+    Vector<String> granted_origins;
 };
 
 // An extension that could not be loaded, and why.
@@ -85,6 +90,23 @@ inline constexpr StringView favicon_path = "_favicon"sv;
 
 // https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions
 WEBVIEW_API bool extension_has_permission(LoadedExtension const&, StringView permission);
+
+// What an extension's manifest asks for, as permissions.getAll gives them: API permissions, and the match patterns of
+// host permissions. Manifest V2 names both in "permissions", and Manifest V3 the hosts in "host_permissions".
+struct ExtensionPermissions {
+    Vector<String> permissions;
+    Vector<String> origins;
+};
+WEBVIEW_API ExtensionPermissions required_permissions_of(LoadedExtension const&);
+// What it may ask the user for later, with permissions.request.
+WEBVIEW_API ExtensionPermissions optional_permissions_of(LoadedExtension const&);
+
+// Whether a held match pattern covers one an extension asks about: the same pattern, one for every URL, or one that
+// matches every URL the other pattern names.
+// FIXME: Chromium compares the patterns' schemes, hosts and paths, so that https://*.example.com/* also covers
+//        https://*.www.example.com/*. Here a pattern with a wildcard in its host is covered only by itself or by a
+//        pattern for every URL.
+WEBVIEW_API bool match_pattern_covers(StringView held, StringView wanted);
 
 enum class HostAccess : u8 {
     // The hosts that the manifest's host permissions name, which scripting needs.

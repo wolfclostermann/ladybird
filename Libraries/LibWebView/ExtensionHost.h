@@ -9,14 +9,15 @@
 #include <AK/Function.h>
 #include <AK/HashMap.h>
 #include <AK/HashTable.h>
-#include <AK/OwnPtr.h>
-#include <AK/RefPtr.h>
-#include <LibDatabase/Forward.h>
-#include <LibURL/Forward.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/Optional.h>
+#include <AK/OwnPtr.h>
+#include <AK/RefPtr.h>
 #include <AK/String.h>
+#include <LibDatabase/Forward.h>
+#include <LibURL/Forward.h>
+#include <LibURL/Origin.h>
 #include <LibWebView/Export.h>
 #include <LibWebView/Forward.h>
 
@@ -73,6 +74,11 @@ public:
     // https://developer.chrome.com/docs/extensions/reference/api/action#event-onClicked
     void action_clicked(String const& extension_id, u64 view_id);
 
+    // Whether the activeTab permission lets an extension at a URL shown in a tab: the user invoked the extension on the
+    // tab, which still shows a page of the origin it showed then.
+    // https://developer.chrome.com/docs/extensions/develop/concepts/activeTab
+    bool has_active_tab_access(String const& extension_id, u64 view_id, URL::URL const&) const;
+
     // Forgets what the host keeps of an extension that was turned off or removed. What it stored stays on disk.
     void extension_did_unload(String const& extension_id);
 
@@ -109,6 +115,7 @@ private:
     void history_call(StringView function, JsonArray const& arguments, Completion);
     void search_query(WebContentPage&, JsonArray const& arguments, Completion);
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
+    void permissions_call(LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     CallResult open_action_popup(LoadedExtension const&, JsonValue const& options);
     HistoryStore* history_store();
 
@@ -118,6 +125,7 @@ private:
     void background_page_did_load(LoadedExtension const&);
     void broadcast_to_extension_pages(StringView event, JsonArray const& arguments);
     void tab_did_update(ViewImplementation&, JsonObject change_info);
+    void grant_active_tab(LoadedExtension const&, ViewImplementation&);
 
     JsonObject sender_for(WebContentPage&, LoadedExtension const&, Context const&) const;
     JsonObject& storage_area(LoadedExtension const&, StringView area);
@@ -140,6 +148,10 @@ private:
     HashTable<String> m_session_storage_open_to_content_scripts;
     u64 m_next_dispatch_id { 0 };
     bool m_dispatches_events { true };
+
+    // The tabs that the activeTab permission lets each extension at, by extension ID and then view ID, with the origin
+    // each tab showed when the user invoked the extension.
+    HashMap<String, HashMap<u64, URL::Origin>> m_active_tab_grants;
 
     // The tabs that extensions were told of, which they are told are gone once they are.
     HashTable<u64> m_announced_tabs;

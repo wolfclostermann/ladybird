@@ -153,6 +153,7 @@ private:
     virtual void app_read_clipboard_item(u64 request_id) override;
     virtual void app_ask_user_for_download_path(u64 request_id, ByteString file) override;
     virtual void app_ask_user_for_extension_path(u64 request_id, bool package) override;
+    virtual void app_ask_user_to_grant_extension_permissions(u64 request_id, String extension_name, Vector<String> descriptions) override;
     virtual void settings_changed(ByteString settings_json, u64 last_applied_change_id) override;
     virtual void web_ui_opened(u64 web_ui_id, String host, WebView::IsPrivate is_private) override;
     virtual void web_ui_message(u64 web_ui_id, String name, JsonValue data) override;

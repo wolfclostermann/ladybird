@@ -930,9 +930,47 @@ ErrorOr<LoadedExtension> Application::load_extension_from(StringView path) const
     // A packed extension's folder is named after its ID. A .crx file's manifest has the key that gives that ID; a .zip
     // archive's has none, so the folder's name is taken as the ID.
     auto directory = TRY(FileSystem::real_path(path));
+    Optional<String> id_without_key;
     if (is_unpacked_extension_package(directory))
-        return load_unpacked_extension(directory, MUST(String::from_byte_string(LexicalPath::basename(directory))));
-    return load_unpacked_extension(directory);
+        id_without_key = MUST(String::from_byte_string(LexicalPath::basename(directory)));
+    auto extension = TRY(load_unpacked_extension(directory, id_without_key));
+
+    // It keeps the optional permissions the user granted it, of those its manifest still asks for.
+    if (auto granted = m_granted_extension_permissions.get(extension.id); granted.has_value()) {
+        auto optional = optional_permissions_of(extension);
+        for (auto const& permission : granted->permissions) {
+            if (optional.permissions.contains_slow(permission))
+                extension.granted_permissions.append(permission);
+        }
+        for (auto const& origin : granted->origins) {
+            if (any_of(optional.origins, [&](auto const& declared) { return match_pattern_covers(declared, origin); }))
+                extension.granted_origins.append(origin);
+        }
+    }
+    return extension;
+}
+
+void Application::set_extension_granted_permissions(StringView id, ExtensionPermissions granted)
+{
+    for (auto* extensions : { &m_extensions, &m_disabled_extensions }) {
+        for (auto& extension : *extensions) {
+            if (extension.id == id) {
+                extension.granted_permissions = granted.permissions;
+                extension.granted_origins = granted.origins;
+            }
+        }
+    }
+    auto key = MUST(String::from_utf8(id));
+    if (granted.permissions.is_empty() && granted.origins.is_empty())
+        m_granted_extension_permissions.remove(key);
+    else
+        m_granted_extension_permissions.set(key, move(granted));
+    save_extensions_state();
+}
+
+NonnullRefPtr<Core::Promise<bool>> Application::ask_user_to_grant_extension_permissions(String const&, Vector<String> const&) const
+{
+    return Core::Promise<bool>::resolved(false);
 }
 
 void Application::load_extensions()
@@ -945,6 +983,7 @@ void Application::load_extensions()
     m_disabled_extension_ids.clear();
     m_installed_extension_paths.clear();
     m_pinned_extension_ids.clear();
+    m_granted_extension_permissions.clear();
     if (auto state = read_json_file(extensions_state_path()); !state.is_error()) {
         if (auto disabled = state.value().get_array("disabled"sv); disabled.has_value()) {
             disabled->for_each([&](JsonValue const& id) {
@@ -962,6 +1001,20 @@ void Application::load_extensions()
             pinned->for_each([&](JsonValue const& id) {
                 if (id.is_string() && !m_pinned_extension_ids.contains_slow(id.as_string()))
                     m_pinned_extension_ids.append(id.as_string());
+            });
+        }
+        if (auto granted = state.value().get_object("granted"sv); granted.has_value()) {
+            granted->for_each_member([&](String const& id, JsonValue const& value) {
+                if (!value.is_object())
+                    return;
+                ExtensionPermissions permissions;
+                auto read = [&](StringView key, Vector<String>& into) {
+                    if (auto array = value.as_object().get_array(key); array.has_value())
+                        array->for_each([&](JsonValue const& string) { if (string.is_string()) into.append(string.as_string()); });
+                };
+                read("permissions"sv, permissions.permissions);
+                read("origins"sv, permissions.origins);
+                m_granted_extension_permissions.set(id, move(permissions));
             });
         }
     }
@@ -1015,10 +1068,28 @@ void Application::save_extensions_state()
     for (auto const& id : m_pinned_extension_ids)
         pinned.must_append(id);
 
+    JsonObject granted;
+    auto granted_ids = m_granted_extension_permissions.keys();
+    quick_sort(granted_ids);
+    for (auto const& id : granted_ids) {
+        auto const& permissions = m_granted_extension_permissions.get(id).value();
+        JsonArray permissions_json;
+        for (auto const& permission : permissions.permissions)
+            permissions_json.must_append(permission);
+        JsonArray origins_json;
+        for (auto const& origin : permissions.origins)
+            origins_json.must_append(origin);
+        JsonObject object;
+        object.set("permissions"sv, move(permissions_json));
+        object.set("origins"sv, move(origins_json));
+        granted.set(id, move(object));
+    }
+
     JsonObject state;
     state.set("disabled"sv, move(disabled));
     state.set("unpacked"sv, move(unpacked));
     state.set("pinned"sv, move(pinned));
+    state.set("granted"sv, move(granted));
     if (auto result = write_json_file(extensions_state_path(), state); result.is_error())
         warnln("Unable to save the state of extensions: {}", result.error());
 }
@@ -1141,6 +1212,8 @@ ErrorOr<void> Application::remove_extension(StringView id)
     m_installed_extension_paths.remove_all_matching([&](ByteString const& path) { return names_folder(path, removed->directory); });
     m_disabled_extension_ids.remove(removed->id);
     m_pinned_extension_ids.remove_all_matching([&](String const& pinned_id) { return pinned_id == removed->id; });
+    // Like Chromium, a removed extension's optional permissions are no longer granted if it is installed again.
+    m_granted_extension_permissions.remove(removed->id);
     save_extensions_state();
 
     // A packed extension's unpacked files go too, as nothing else would ever load them.

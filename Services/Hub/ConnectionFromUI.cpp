@@ -219,6 +219,11 @@ void ConnectionFromUI::answer_extension_path(u64 request_id, Optional<ByteString
     Application::the().did_get_extension_path(request_id, move(path));
 }
 
+void ConnectionFromUI::answer_extension_permissions(u64 request_id, bool granted)
+{
+    Application::the().did_answer_extension_permissions(request_id, granted);
+}
+
 static DownloadState state_of_download(WebView::FileDownloader::Download const& download)
 {
     DownloadState state;

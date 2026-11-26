@@ -21,6 +21,10 @@ kept so that the checks can be repeated.
   - `host-ext`, `inject-ext`, `noperm-ext`: permission and host permission enforcement (`sites/perm-page`).
   - `iso-ext`, `war-ext`, `war-other-ext`: process isolation of extension frames and `web_accessible_resources`
     (`sites/iso-site`, `sites/war-site`, `sites/neg-site`).
+  - `active-tab-ext`: `activeTab`. Its badge says every second whether it can script the active tab: "no" until its
+    button is clicked, "yes" after, and "no" again once the tab goes to another origin.
+  - `optional-ext`: optional permissions. Its popup asks for `history` and a host and gives them back;
+    `tools/optional_permissions.py` drives the rest through WebDriver.
   - `key-ext`, `log-ext`, `diag-ext`: synthetic key events, content script `console.log`, general diagnostics.
   - `broken-ext` (invalid JSON), `bad-ext` (unsupported manifest version), `nothing-ext` (a manifest and nothing
     else): load failures and the about:extensions layout.
@@ -36,6 +40,7 @@ kept so that the checks can be repeated.
     about:extensions. Run each as `python3 tools/drive.py <work dir>`. They copy the fixtures they change into the
     work directory, start a headless WebDriver from `Build/release` (or `$LADYBIRD_BIN_DIR`) and print what they
     see. `shot.py` saves screenshots into the work directory.
+  - `optional_permissions.py <work dir>`: checks `chrome.permissions` headlessly and prints PASS/FAIL per check.
   - `fetch-vimium.sh [dir]`: clones Vimium at the commit that was tested (2.4.2).
   - `csp-server.py <root> <port>`: a static server that sends a strict CSP for `/csp-site/`.
   - `click.swift` (`swift tools/click.swift x y [right]`) and `press.applescript` (`osascript tools/press.applescript

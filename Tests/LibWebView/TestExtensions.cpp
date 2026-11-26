@@ -28,6 +28,8 @@ static WebView::LoadedExtension extension_with_manifest(StringView manifest)
         .directory = "/nonexistent"sv,
         .manifest = JsonParser::parse(manifest).release_value().as_object(),
         .content_scripts = {},
+        .granted_permissions = {},
+        .granted_origins = {},
     };
 }
 
@@ -465,4 +467,56 @@ TEST_CASE(manifest_keys_give_the_extension_id)
 
     write_file(directory.path().append("manifest.json"sv), R"({ "manifest_version": 3, "name": "Keyed", "version": "1", "key": "%%%" })"sv.bytes());
     EXPECT(WebView::load_unpacked_extension(directory.path().string()).is_error());
+}
+
+TEST_CASE(manifests_name_required_and_optional_permissions)
+{
+    auto extension = extension_with_manifest(R"~~~({"manifest_version": 3,
+        "permissions": ["storage", "tabs"], "host_permissions": ["https://example.com/*"],
+        "optional_permissions": ["history"], "optional_host_permissions": ["https://*.example.org/*"]})~~~"sv);
+    auto required = WebView::required_permissions_of(extension);
+    EXPECT_EQ(required.permissions, (Vector<String> { "storage"_string, "tabs"_string }));
+    EXPECT_EQ(required.origins, (Vector<String> { "https://example.com/*"_string }));
+    auto optional = WebView::optional_permissions_of(extension);
+    EXPECT_EQ(optional.permissions, (Vector<String> { "history"_string }));
+    EXPECT_EQ(optional.origins, (Vector<String> { "https://*.example.org/*"_string }));
+
+    // Manifest V2 names hosts among the permissions.
+    auto v2 = extension_with_manifest(R"~~~({"manifest_version": 2,
+        "permissions": ["storage", "<all_urls>"], "optional_permissions": ["bookmarks", "https://example.net/*"]})~~~"sv);
+    EXPECT_EQ(WebView::required_permissions_of(v2).permissions, (Vector<String> { "storage"_string }));
+    EXPECT_EQ(WebView::required_permissions_of(v2).origins, (Vector<String> { "<all_urls>"_string }));
+    EXPECT_EQ(WebView::optional_permissions_of(v2).permissions, (Vector<String> { "bookmarks"_string }));
+    EXPECT_EQ(WebView::optional_permissions_of(v2).origins, (Vector<String> { "https://example.net/*"_string }));
+}
+
+TEST_CASE(granted_optional_permissions_are_held)
+{
+    auto extension = extension_with_manifest(R"~~~({"manifest_version": 3,
+        "optional_permissions": ["history"], "optional_host_permissions": ["https://example.org/*"]})~~~"sv);
+    auto url = URL::Parser::basic_parse("https://example.org/page"sv).release_value();
+
+    EXPECT(!WebView::extension_has_permission(extension, "history"sv));
+    EXPECT(!WebView::extension_has_host_access(extension, url, WebView::HostAccess::Explicit));
+
+    extension.granted_permissions.append("history"_string);
+    extension.granted_origins.append("https://example.org/*"_string);
+    EXPECT(WebView::extension_has_permission(extension, "history"sv));
+    EXPECT(WebView::extension_has_host_access(extension, url, WebView::HostAccess::Explicit));
+    EXPECT(WebView::extension_may_see_tab_with_url(extension, url));
+    EXPECT(!WebView::extension_has_host_access(extension, URL::Parser::basic_parse("https://example.com/"sv).release_value(), WebView::HostAccess::Explicit));
+}
+
+TEST_CASE(match_patterns_cover_narrower_ones)
+{
+    EXPECT(WebView::match_pattern_covers("https://example.com/*"sv, "https://example.com/*"sv));
+    EXPECT(WebView::match_pattern_covers("<all_urls>"sv, "https://example.com/*"sv));
+    EXPECT(WebView::match_pattern_covers("*://*/*"sv, "https://*.example.com/*"sv));
+    EXPECT(WebView::match_pattern_covers("https://*.example.org/*"sv, "https://www.example.org/*"sv));
+    EXPECT(WebView::match_pattern_covers("https://example.com/*"sv, "https://example.com/docs/*"sv));
+
+    EXPECT(!WebView::match_pattern_covers("https://example.com/*"sv, "https://example.net/*"sv));
+    EXPECT(!WebView::match_pattern_covers("https://example.com/docs/*"sv, "https://example.com/*"sv));
+    EXPECT(!WebView::match_pattern_covers("https://www.example.org/*"sv, "https://*.example.org/*"sv));
+    EXPECT(!WebView::match_pattern_covers("*://*/*"sv, "file:///*"sv));
 }

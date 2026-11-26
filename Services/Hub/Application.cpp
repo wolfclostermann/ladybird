@@ -286,6 +286,25 @@ void Application::did_get_extension_path(u64 request_id, Optional<ByteString> pa
         (*promise)->reject(Error::from_errno(ECANCELED));
 }
 
+NonnullRefPtr<Core::Promise<bool>> Application::ask_user_to_grant_extension_permissions(String const& extension_name, Vector<String> const& descriptions) const
+{
+    auto* ui = ConnectionFromUI::the();
+    if (!ui)
+        return WebView::Application::ask_user_to_grant_extension_permissions(extension_name, descriptions);
+
+    auto promise = Core::Promise<bool>::construct();
+    auto request_id = m_next_ui_request_id++;
+    m_pending_extension_permission_prompts.set(request_id, promise);
+    ui->async_app_ask_user_to_grant_extension_permissions(request_id, extension_name, descriptions);
+    return promise;
+}
+
+void Application::did_answer_extension_permissions(u64 request_id, bool granted)
+{
+    if (auto promise = m_pending_extension_permission_prompts.take(request_id); promise.has_value())
+        (*promise)->resolve(granted);
+}
+
 void Application::display_download_confirmation_dialog(StringView download_name, LexicalPath const& path) const
 {
     if (auto* ui = ConnectionFromUI::the())

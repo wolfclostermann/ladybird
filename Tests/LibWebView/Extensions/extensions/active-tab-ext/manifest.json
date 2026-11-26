@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Active Tab probe",
+  "version": "1.0",
+  "description": "Shows whether activeTab gives it the current tab: the badge says yes or no every second.",
+  "permissions": ["activeTab", "scripting"],
+  "action": { "default_title": "Active Tab probe" },
+  "background": { "service_worker": "bg.js" }
+}

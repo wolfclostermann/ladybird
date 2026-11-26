@@ -131,6 +131,11 @@ public:
     // Asks the user for the folder of an unpacked extension to install, or for a packed one's file. Rejected if they
     // cancel, or without a UI.
     virtual NonnullRefPtr<Core::Promise<ByteString>> ask_user_for_extension_path(bool package) const;
+    // Sets the optional permissions the user granted an extension, for this run and later ones.
+    void set_extension_granted_permissions(StringView id, ExtensionPermissions);
+    // Asks the user whether to grant an extension the permissions that the descriptions describe. False if they
+    // decline, or without a UI.
+    virtual NonnullRefPtr<Core::Promise<bool>> ask_user_to_grant_extension_permissions(String const& extension_name, Vector<String> const& descriptions) const;
     // Whether a folder was named by --load-extension, which loads it every time Ladybird starts with the option.
     bool is_extension_folder_from_command_line(ByteString const& directory) const;
     // Whether a folder is where a packed extension was unpacked into the profile, which removing it deletes.
@@ -738,6 +743,7 @@ private:
     HashTable<String> m_disabled_extension_ids;
     Vector<ByteString> m_installed_extension_paths;
     Vector<String> m_pinned_extension_ids;
+    HashMap<String, ExtensionPermissions> m_granted_extension_permissions;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

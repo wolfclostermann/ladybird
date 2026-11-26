@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Optional permissions probe",
+  "version": "1.0",
+  "permissions": [
+    "storage"
+  ],
+  "optional_permissions": [
+    "history",
+    "bookmarks"
+  ],
+  "optional_host_permissions": [
+    "https://*.example.org/*"
+  ],
+  "background": {
+    "service_worker": "bg.js"
+  },
+  "action": {
+    "default_title": "Optional permissions probe",
+    "default_popup": "popup.html"
+  }
+}

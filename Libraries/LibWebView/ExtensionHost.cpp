@@ -236,12 +236,17 @@ static Optional<StringView> permission_needed_for(StringView api)
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab
 static JsonObject tab_as_seen_by(LoadedExtension const& extension, JsonObject tab)
 {
+    auto tab_id = tab.get_integer<i64>("id"sv);
     auto may_see = [&](StringView key) {
         auto url = tab.get_string(key);
         if (!url.has_value())
             return true;
         auto parsed = URL::Parser::basic_parse(*url);
-        return parsed.has_value() && extension_may_see_tab_with_url(extension, *parsed);
+        if (!parsed.has_value())
+            return false;
+        if (extension_may_see_tab_with_url(extension, *parsed))
+            return true;
+        return tab_id.has_value() && *tab_id >= 0 && Application::the().extension_host().has_active_tab_access(extension.id, static_cast<u64>(*tab_id), *parsed);
     };
     if (!may_see("url"sv)) {
         tab.remove("url"sv);
@@ -511,7 +516,7 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
                     url->as_array().for_each([&](auto const& value) { if (value.is_string()) patterns.append(value.as_string()); });
                 // Only a tab whose URL the extension may see can match one.
                 auto view_url = view.url();
-                if (!extension_may_see_tab_with_url(extension, view_url))
+                if (!extension_may_see_tab_with_url(extension, view_url) && !has_active_tab_access(extension.id, view.view_id(), view_url))
                     continue;
                 if (!any_of(patterns, [&](auto const& pattern) { return Web::Extensions::match_pattern_matches(pattern, view_url); }))
                     continue;
@@ -616,48 +621,8 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
         return complete(result(window_object(false)));
 
     // https://developer.chrome.com/docs/extensions/reference/api/permissions
-    // FIXME: Grant optional permissions with permissions.request.
-    if (api == "permissions.contains"sv || api == "permissions.getAll"sv) {
-        auto manifest_strings = [&](StringView key) {
-            Vector<String> strings;
-            if (auto array = extension.manifest.get_array(key); array.has_value())
-                array->for_each([&](auto const& value) { if (value.is_string()) strings.append(value.as_string()); });
-            return strings;
-        };
-        auto is_pattern = [](StringView string) { return string == "<all_urls>"sv || string.contains("://"sv); };
-
-        if (api == "permissions.getAll"sv) {
-            JsonArray permissions;
-            JsonArray origins;
-            for (auto const& permission : manifest_strings("permissions"sv))
-                (is_pattern(permission) ? origins : permissions).must_append(permission);
-            for (auto const& origin : manifest_strings("host_permissions"sv))
-                origins.must_append(origin);
-            JsonObject all;
-            all.set("permissions"sv, move(permissions));
-            all.set("origins"sv, move(origins));
-            return complete(result(all));
-        }
-
-        auto wanted = argument(0).is_object() ? argument(0).as_object() : JsonObject {};
-        bool has_all = true;
-        if (auto permissions = wanted.get_array("permissions"sv); permissions.has_value()) {
-            permissions->for_each([&](auto const& permission) {
-                if (!permission.is_string() || !extension_has_permission(extension, permission.as_string()))
-                    has_all = false;
-            });
-        }
-        if (auto origins = wanted.get_array("origins"sv); origins.has_value()) {
-            // An origin pattern is held if the manifest names it, or a pattern covering every URL.
-            auto held = manifest_strings("host_permissions"sv);
-            held.extend(manifest_strings("permissions"sv));
-            origins->for_each([&](auto const& origin) {
-                if (!origin.is_string() || !(held.contains_slow(origin.as_string()) || held.contains_slow("<all_urls>"sv) || held.contains_slow("*://*/*"sv)))
-                    has_all = false;
-            });
-        }
-        return complete(result(has_all));
-    }
+    if (api.starts_with("permissions."sv))
+        return permissions_call(extension, api.substring_view(12), arguments, move(complete));
 
     complete(error(MUST(String::formatted("chrome.{} is not implemented yet", api))));
 }
@@ -1279,10 +1244,12 @@ void ExtensionHost::scripting_call(WebContentPage&, LoadedExtension const& exten
         return;
     }
 
-    // The extension needs host permissions for each frame it injects into, as in Chromium. A frame showing about:blank
-    // or about:srcdoc is its parent's to script.
-    // FIXME: Grant access to the active tab for the activeTab permission, once the toolbar button or a command invokes
-    //        an extension.
+    // The extension needs host permissions for each frame it injects into, as in Chromium, or activeTab access to the
+    // tab for the frames of the origin it was granted for. A frame showing about:blank or about:srcdoc is its parent's
+    // to script.
+    auto may_access = [&](URL::URL const& url) {
+        return extension_has_host_access(extension, url, HostAccess::Explicit) || has_active_tab_access(extension.id, view->view_id(), url);
+    };
     HashMap<u64, bool> frame_access;
     if (view->has_traversable()) {
         view->traversable().for_each_in_inclusive_subtree([&](CanonicalNavigable const& navigable) {
@@ -1296,11 +1263,11 @@ void ExtensionHost::scripting_call(WebContentPage&, LoadedExtension const& exten
                 url = frame_url;
                 break;
             }
-            frame_access.set(frame_id_of(navigable), url.has_value() && extension_has_host_access(extension, *url, HostAccess::Explicit));
+            frame_access.set(frame_id_of(navigable), url.has_value() && may_access(*url));
             return IterationDecision::Continue;
         });
     } else {
-        frame_access.set(0, extension_has_host_access(extension, view->url(), HostAccess::Explicit));
+        frame_access.set(0, may_access(view->url()));
     }
     auto no_access = [&](u64 frame_id) {
         complete(error(MUST(String::formatted("Cannot access the contents of frame {} of tab {}. The extension's manifest must ask for permission to access its host.", frame_id, *tab_id))));
@@ -1525,10 +1492,20 @@ void ExtensionHost::tab_did_update(ViewImplementation& view, JsonObject change_i
 // https://developer.chrome.com/docs/extensions/reference/api/webNavigation#event-onCommitted
 void ExtensionHost::navigable_did_commit(CanonicalNavigable const& navigable)
 {
-    if (!dispatches_events())
-        return;
     auto view = navigable.top_level_traversable().view();
     if (!view.has_value() || !is_tab_view(*view))
+        return;
+
+    // As in Chromium, a tab navigating to another origin takes away the access activeTab gave to it.
+    if (navigable.is_top_level_traversable()) {
+        auto origin = navigable.active_document_url().origin();
+        for (auto& [extension_id, grants] : m_active_tab_grants) {
+            if (auto granted = grants.get(view->view_id()); granted.has_value() && !granted->is_same_origin(origin))
+                grants.remove(view->view_id());
+        }
+    }
+
+    if (!dispatches_events())
         return;
     auto tab_id = static_cast<i64>(view->view_id());
 
@@ -1633,6 +1610,8 @@ void ExtensionHost::view_did_change_title(ViewImplementation& view)
 void ExtensionHost::view_will_be_destroyed(u64 view_id)
 {
     m_actions->view_will_be_destroyed(view_id);
+    for (auto& [extension_id, grants] : m_active_tab_grants)
+        grants.remove(view_id);
     if (!m_announced_tabs.remove(view_id) || !dispatches_events())
         return;
 
@@ -2011,6 +1990,7 @@ void ExtensionHost::extension_did_unload(String const& extension_id)
     m_session_storage_open_to_content_scripts.remove(extension_id);
     m_pages_with_injected_scripts.remove(extension_id);
     m_loaded_background_pages.remove(extension_id);
+    m_active_tab_grants.remove(extension_id);
 
     // The calls that waited for its background page fail now that it is gone.
     for (auto& send : m_waiting_for_background_page.take(extension_id).value_or({}))
@@ -2078,6 +2058,9 @@ void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
     if (!click.enabled)
         return;
 
+    // Clicking the button invokes the extension on the tab, whether it opens a popup or not.
+    grant_active_tab(*extension, views[*index]);
+
     if (click.popup.has_value()) {
         auto url = action_popup_url(*extension, *click.popup);
         if (url.has_value())
@@ -2090,6 +2073,204 @@ void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
     JsonArray arguments;
     arguments.must_append(tabs_as_seen_by(*extension, tab_object_for(views[*index], *index)));
     broadcast_event(extension->id, "action.onClicked"sv, arguments);
+}
+
+static Vector<String> strings_in(JsonObject const& object, StringView key)
+{
+    Vector<String> strings;
+    if (auto array = object.get_array(key); array.has_value())
+        array->for_each([&](auto const& value) { if (value.is_string()) strings.append(value.as_string()); });
+    return strings;
+}
+
+static JsonObject permissions_as_json(Vector<String> const& permissions, Vector<String> const& origins)
+{
+    JsonArray permissions_json;
+    for (auto const& permission : permissions)
+        permissions_json.must_append(permission);
+    JsonArray origins_json;
+    for (auto const& origin : origins)
+        origins_json.must_append(origin);
+    JsonObject object;
+    object.set("permissions"sv, move(permissions_json));
+    object.set("origins"sv, move(origins_json));
+    return object;
+}
+
+// What the user is told an extension asks for, much as Chromium words its warnings.
+// https://developer.chrome.com/docs/extensions/reference/permissions-list
+static String describe_permission(StringView permission)
+{
+    if (permission == "history"sv)
+        return "Read and change your browsing history"_string;
+    if (permission == "bookmarks"sv)
+        return "Read and change your bookmarks"_string;
+    if (permission == "tabs"sv)
+        return "Read your browsing history"_string;
+    if (permission == "sessions"sv)
+        return "Read your recently closed tabs"_string;
+    if (permission == "webNavigation"sv)
+        return "Read your browsing history"_string;
+    if (permission == "notifications"sv)
+        return "Display notifications"_string;
+    if (permission == "clipboardRead"sv)
+        return "Read data you copy and paste"_string;
+    if (permission == "clipboardWrite"sv)
+        return "Modify data you copy and paste"_string;
+    return MUST(String::formatted("Use \"{}\"", permission));
+}
+
+static String describe_origin(StringView origin)
+{
+    if (origin == "<all_urls>"sv || origin == "*://*/*"sv || origin == "http://*/*"sv || origin == "https://*/*"sv)
+        return "Read and change all your data on all websites"_string;
+    auto host = origin;
+    if (auto separator = host.find("://"sv); separator.has_value())
+        host = host.substring_view(*separator + 3);
+    host = host.substring_view(0, host.find('/').value_or(host.length()));
+    if (host.starts_with("*."sv))
+        return MUST(String::formatted("Read and change your data on all {} sites", host.substring_view(2)));
+    return MUST(String::formatted("Read and change your data on {}", host));
+}
+
+void ExtensionHost::permissions_call(LoadedExtension const& extension, StringView function, JsonArray const& arguments, Completion complete)
+{
+    auto wanted = !arguments.is_empty() && arguments.at(0).is_object() ? arguments.at(0).as_object() : JsonObject {};
+    auto wanted_permissions = strings_in(wanted, "permissions"sv);
+    auto wanted_origins = strings_in(wanted, "origins"sv);
+
+    auto required = required_permissions_of(extension);
+    auto optional = optional_permissions_of(extension);
+
+    auto holds_permission = [&](StringView permission) { return extension_has_permission(extension, permission); };
+    auto holds_origin = [&](StringView origin) {
+        return any_of(required.origins, [&](auto const& held) { return match_pattern_covers(held, origin); })
+            || any_of(extension.granted_origins, [&](auto const& held) { return match_pattern_covers(held, origin); });
+    };
+
+    if (function == "getAll"sv) {
+        auto permissions = required.permissions;
+        for (auto const& permission : extension.granted_permissions) {
+            if (!permissions.contains_slow(permission))
+                permissions.append(permission);
+        }
+        auto origins = required.origins;
+        for (auto const& origin : extension.granted_origins) {
+            if (!origins.contains_slow(origin))
+                origins.append(origin);
+        }
+        return complete(result(permissions_as_json(permissions, origins)));
+    }
+
+    if (function == "contains"sv)
+        return complete(result(all_of(wanted_permissions, holds_permission) && all_of(wanted_origins, holds_origin)));
+
+    if (function == "request"sv) {
+        // An extension may ask only for what its manifest names, as Chromium checks.
+        for (auto const& permission : wanted_permissions) {
+            if (!required.permissions.contains_slow(permission) && !optional.permissions.contains_slow(permission))
+                return complete(error(MUST(String::formatted("Only permissions specified in the manifest may be requested. \"{}\" is not.", permission))));
+        }
+        for (auto const& origin : wanted_origins) {
+            auto covers = [&](auto const& declared) { return match_pattern_covers(declared, origin); };
+            if (!any_of(required.origins, covers) && !any_of(optional.origins, covers))
+                return complete(error(MUST(String::formatted("Only permissions specified in the manifest may be requested. \"{}\" is not.", origin))));
+        }
+
+        Vector<String> new_permissions;
+        for (auto const& permission : wanted_permissions) {
+            if (!holds_permission(permission) && !new_permissions.contains_slow(permission))
+                new_permissions.append(permission);
+        }
+        Vector<String> new_origins;
+        for (auto const& origin : wanted_origins) {
+            if (!holds_origin(origin) && !new_origins.contains_slow(origin))
+                new_origins.append(origin);
+        }
+        if (new_permissions.is_empty() && new_origins.is_empty())
+            return complete(result(true));
+
+        Vector<String> descriptions;
+        auto describe = [&](String description) {
+            if (!descriptions.contains_slow(description))
+                descriptions.append(move(description));
+        };
+        for (auto const& origin : new_origins)
+            describe(describe_origin(origin));
+        for (auto const& permission : new_permissions)
+            describe(describe_permission(permission));
+
+        // NB: The extension may be turned off or removed while the user decides, so it is looked up again.
+        Application::the().ask_user_to_grant_extension_permissions(extension.name, descriptions)->when_resolved([this, extension_id = extension.id, new_permissions, new_origins, complete = move(complete)](bool granted) mutable {
+            auto const* extension = Application::the().extension_with_id(extension_id);
+            if (!extension) {
+                complete(error("The extension was turned off"_string));
+                return;
+            }
+            if (!granted) {
+                complete(result(false));
+                return;
+            }
+            ExtensionPermissions now_granted { extension->granted_permissions, extension->granted_origins };
+            now_granted.permissions.extend(new_permissions);
+            now_granted.origins.extend(new_origins);
+            Application::the().set_extension_granted_permissions(extension_id, move(now_granted));
+
+            complete(result(true));
+            JsonArray event_arguments;
+            event_arguments.must_append(permissions_as_json(new_permissions, new_origins));
+            broadcast_event(extension_id, "permissions.onAdded"sv, event_arguments);
+        });
+        return;
+    }
+
+    if (function == "remove"sv) {
+        // https://developer.chrome.com/docs/extensions/reference/api/permissions#method-remove
+        if (any_of(wanted_permissions, [&](auto const& permission) { return required.permissions.contains_slow(permission); })
+            || any_of(wanted_origins, [&](auto const& origin) { return required.origins.contains_slow(origin); }))
+            return complete(error("You cannot remove required permissions."_string));
+
+        ExtensionPermissions now_granted;
+        Vector<String> removed_permissions;
+        Vector<String> removed_origins;
+        for (auto const& permission : extension.granted_permissions)
+            (wanted_permissions.contains_slow(permission) ? removed_permissions : now_granted.permissions).append(permission);
+        for (auto const& origin : extension.granted_origins)
+            (wanted_origins.contains_slow(origin) ? removed_origins : now_granted.origins).append(origin);
+
+        if (!removed_permissions.is_empty() || !removed_origins.is_empty()) {
+            auto extension_id = extension.id;
+            Application::the().set_extension_granted_permissions(extension_id, move(now_granted));
+            JsonArray event_arguments;
+            event_arguments.must_append(permissions_as_json(removed_permissions, removed_origins));
+            broadcast_event(extension_id, "permissions.onRemoved"sv, event_arguments);
+        }
+        return complete(result(true));
+    }
+
+    complete(error(MUST(String::formatted("chrome.permissions.{} is not implemented yet", function))));
+}
+
+// https://developer.chrome.com/docs/extensions/develop/concepts/activeTab#what-activeTab-allows
+void ExtensionHost::grant_active_tab(LoadedExtension const& extension, ViewImplementation& view)
+{
+    if (!extension_has_permission(extension, "activeTab"sv))
+        return;
+    // Like host permissions, activeTab reaches web pages only, not the browser's own pages or other extensions'.
+    // FIXME: Chromium also grants file: URLs, if the user lets the extension at them.
+    auto url = view.url();
+    if (!url.scheme().is_one_of("http"sv, "https"sv))
+        return;
+    m_active_tab_grants.ensure(extension.id).set(view.view_id(), url.origin());
+}
+
+bool ExtensionHost::has_active_tab_access(String const& extension_id, u64 view_id, URL::URL const& url) const
+{
+    auto grants = m_active_tab_grants.find(extension_id);
+    if (grants == m_active_tab_grants.end())
+        return false;
+    auto granted = grants->value.get(view_id);
+    return granted.has_value() && granted->is_same_origin(url.origin());
 }
 
 }
