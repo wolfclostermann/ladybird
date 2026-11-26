@@ -2165,9 +2165,9 @@ void PageClient::request_file(Web::FileRequest file_request)
     client().request_file(m_id, move(file_request));
 }
 
-void PageClient::request_extension_file(Web::FileRequest file_request)
+void PageClient::request_extension_file(Web::FileRequest file_request, Optional<URL::Origin> const& requesting_origin)
 {
-    client().request_extension_file(m_id, move(file_request));
+    client().request_extension_file(m_id, move(file_request), requesting_origin);
 }
 
 void PageClient::page_did_call_extension_api(String const& extension_id, String const& context_json, String const& api, String const& arguments_json, u64 call_id)

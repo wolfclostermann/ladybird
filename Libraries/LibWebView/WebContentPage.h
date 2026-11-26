@@ -294,7 +294,7 @@ private:
     virtual void did_change_picture_in_picture_video_size(Gfx::IntSize video_size) override;
     virtual void did_change_picture_in_picture_player_controls_visibility(bool shown) override;
     virtual void did_request_file(ByteString path, i32 request_id) override;
-    virtual void did_request_extension_file(ByteString url, i32 request_id) override;
+    virtual void did_request_extension_file(ByteString url, Optional<URL::Origin> requesting_origin, i32 request_id) override;
     virtual void did_call_extension_api(String extension_id, String context_json, String api, String arguments_json, u64 call_id) override;
     virtual void did_finish_extension_event(u64 dispatch_id, bool has_response, String response_json) override;
     virtual void did_request_file_for_webdriver(u64 command_id, ByteString path, i32 request_id) override;

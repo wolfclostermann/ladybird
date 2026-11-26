@@ -12,6 +12,8 @@
 #include <LibFileSystem/FileSystem.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
+#include <LibURL/Origin.h>
+#include <LibURL/Parser.h>
 #include <LibURL/URL.h>
 #include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebView/Extensions.h>
@@ -372,8 +374,29 @@ bool extension_may_see_tab_with_url(LoadedExtension const& extension, URL::URL c
     return extension_has_permission(extension, "tabs"sv) || extension_has_host_access(extension, url, HostAccess::IncludingContentScripts);
 }
 
+// Whether an entry of Manifest V3's web_accessible_resources lets what made a request, of an origin, use its resources:
+// its "matches" name the sites that may, and its "extension_ids" the extensions, or "*" for all of them.
+static bool web_accessible_resources_entry_allows(JsonObject const& entry, Optional<URL::Origin> const& requesting_origin)
+{
+    // NB: An opaque origin, such as a sandboxed frame's, has no site to match, so only the extension's own pages, which
+    //     are not asked, may then load the resources. Chromium goes by the origin the opaque one came from.
+    if (!requesting_origin.has_value() || requesting_origin->is_opaque())
+        return false;
+
+    if (requesting_origin->scheme() == "chrome-extension"sv) {
+        auto id = requesting_origin->host().serialize();
+        return any_of(strings_of(entry, "extension_ids"sv), [&](auto const& allowed) { return allowed == "*"sv || allowed == id; });
+    }
+
+    // Match patterns of web_accessible_resources have the path "/*", so they are matched against the origin's root.
+    auto url = URL::Parser::basic_parse(MUST(String::formatted("{}/", requesting_origin->serialize())));
+    if (!url.has_value())
+        return false;
+    return any_of(strings_of(entry, "matches"sv), [&](auto const& pattern) { return Web::Extensions::match_pattern_matches(pattern, *url); });
+}
+
 // https://developer.chrome.com/docs/extensions/reference/manifest/web-accessible-resources
-bool is_web_accessible(LoadedExtension const& extension, StringView path)
+bool is_web_accessible(LoadedExtension const& extension, StringView path, Optional<URL::Origin> const& requesting_origin)
 {
     auto resources = extension.manifest.get_array("web_accessible_resources"sv);
     if (!resources.has_value())
@@ -384,23 +407,27 @@ bool is_web_accessible(LoadedExtension const& extension, StringView path)
     };
 
     for (auto const& entry : resources->values()) {
-        // Manifest V2 lists the resources themselves.
+        // Manifest V2 lists the resources themselves, which every page may use.
         if (entry.is_string() && matches(entry.as_string()))
             return true;
-        // Manifest V3 lists them with the sites that may use them.
-        // FIXME: Check the site of the requesting page against the entry's matches.
-        if (entry.is_object() && any_of(strings_of(entry.as_object(), "resources"sv), [&](auto const& glob) { return matches(glob); }))
+        // Manifest V3 lists them with the sites and extensions that may use them.
+        // FIXME: Support "use_dynamic_url", which serves the resources at a URL that changes each session.
+        if (!entry.is_object())
+            continue;
+        auto const& object = entry.as_object();
+        if (any_of(strings_of(object, "resources"sv), [&](auto const& glob) { return matches(glob); })
+            && web_accessible_resources_entry_allows(object, requesting_origin))
             return true;
     }
     return false;
 }
 
-ErrorOr<IPC::File> open_extension_file(LoadedExtension const& extension, StringView url_path, ExtensionFileRequester requester)
+ErrorOr<IPC::File> open_extension_file(LoadedExtension const& extension, StringView url_path, ExtensionFileRequester requester, Optional<URL::Origin> const& requesting_origin)
 {
     auto path = URL::percent_decode(url_path);
     auto relative_path = path.view().trim("/"sv, TrimMode::Left);
 
-    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path))
+    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path, requesting_origin))
         return Error::from_errno(EACCES);
 
     if (relative_path == generated_background_page_path) {

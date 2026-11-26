@@ -2947,6 +2947,8 @@ GC::Ref<PendingResponse> nonstandard_resource_loader_file_or_http_network_fetch(
     load_request.set_priority(request->priority());
     load_request.set_source_url(content_blocker_source_url_for_request(*request));
     load_request.set_network_isolation_key(Infrastructure::determine_the_network_partition_key(*request));
+    if (auto const* origin = request->origin().get_pointer<URL::Origin>())
+        load_request.set_origin(*origin);
 
     if (auto const& reserved_client = request->reserved_client_snapshot())
         load_request.set_top_level_creation_url(reserved_client->top_level_creation_url);

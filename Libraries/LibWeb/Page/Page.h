@@ -991,8 +991,9 @@ public:
     virtual void request_file(FileRequest) = 0;
     // A context of an extension calls one of the extension APIs, which the UI process carries out.
     virtual void page_did_call_extension_api([[maybe_unused]] String const& extension_id, [[maybe_unused]] String const& context_json, [[maybe_unused]] String const& api, [[maybe_unused]] String const& arguments_json, [[maybe_unused]] u64 call_id) { }
-    // The path of the request is the chrome-extension: URL of a file of an extension.
-    virtual void request_extension_file(FileRequest request) { request.on_file_request_finish(Error::from_errno(ENOENT)); }
+    // The path of the request is the chrome-extension: URL of a file of an extension. The origin is that of what made
+    // the request, which decides whether the extension lets it read the file.
+    virtual void request_extension_file(FileRequest request, [[maybe_unused]] Optional<URL::Origin> const& requesting_origin) { request.on_file_request_finish(Error::from_errno(ENOENT)); }
 
     // https://html.spec.whatwg.org/multipage/input.html#show-the-picker,-if-applicable
     virtual void page_did_request_color_picker([[maybe_unused]] Color current_color) { }

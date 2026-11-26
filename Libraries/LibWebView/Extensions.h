@@ -96,14 +96,15 @@ enum class HostAccess : u8 {
 WEBVIEW_API bool extension_has_host_access(LoadedExtension const&, URL::URL const&, HostAccess);
 // Whether an extension may see the URL and title of a tab that shows a URL: with the "tabs" permission or host access.
 WEBVIEW_API bool extension_may_see_tab_with_url(LoadedExtension const&, URL::URL const&);
-// Whether web pages may load the file at the path, relative to the extension's root.
-WEBVIEW_API bool is_web_accessible(LoadedExtension const&, StringView path);
+// Whether a web page may load the file at the path, relative to the extension's root. Manifest V3 names the sites and
+// extensions that may load each file, so it takes the origin of what made the request, if it is known.
+WEBVIEW_API bool is_web_accessible(LoadedExtension const&, StringView path, Optional<URL::Origin> const& requesting_origin);
 
 // A file a renderer can read the bytes from.
 WEBVIEW_API ErrorOr<IPC::File> file_with_contents(ReadonlyBytes);
 
 // Opens the file that a chrome-extension: URL's path names, for a renderer.
-WEBVIEW_API ErrorOr<IPC::File> open_extension_file(LoadedExtension const&, StringView url_path, ExtensionFileRequester);
+WEBVIEW_API ErrorOr<IPC::File> open_extension_file(LoadedExtension const&, StringView url_path, ExtensionFileRequester, Optional<URL::Origin> const& requesting_origin);
 
 // The extensions as JSON, for a WebContent process.
 WEBVIEW_API String serialize_extensions_for_web_content(Vector<LoadedExtension> const&);

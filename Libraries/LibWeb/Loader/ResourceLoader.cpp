@@ -424,7 +424,7 @@ void ResourceLoader::handle_extension_load_request(LoadRequest& request, FileHan
         on_file(load_result);
     });
 
-    page->client().request_extension_file(move(file_request));
+    page->client().request_extension_file(move(file_request), request.origin());
 }
 
 template<typename ResourceHandler>

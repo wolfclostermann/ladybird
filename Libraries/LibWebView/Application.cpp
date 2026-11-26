@@ -952,7 +952,7 @@ bool Application::is_extension_background_view(ViewImplementation const& view) c
     return false;
 }
 
-ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage const& page, URL::URL const& url)
+ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage const& page, URL::URL const& url, Optional<URL::Origin> const& claimed_requesting_origin)
 {
     if (url.scheme() != "chrome-extension"sv)
         return Error::from_errno(EINVAL);
@@ -975,20 +975,26 @@ ErrorOr<IPC::File> Application::open_extension_file_for_page(WebContentPage cons
             requester = ExtensionFileRequester::ExtensionPage;
     }
 
+    // The extension names the sites that may load its files. The renderer says which origin asks, and is believed only
+    // for an origin of the site whose documents the UI process gave it.
+    Optional<URL::Origin> requesting_origin;
+    if (claimed_requesting_origin.has_value() && page.client().may_make_requests_for_origin(*claimed_requesting_origin))
+        requesting_origin = claimed_requesting_origin;
+
     auto path = URL::percent_decode(url.serialize_path());
     auto relative_path = path.view().trim("/"sv, TrimMode::Left);
     if (relative_path.trim("/"sv, TrimMode::Right) == favicon_path)
-        return open_favicon_for_extension(*extension, url, relative_path, requester);
+        return open_favicon_for_extension(*extension, url, relative_path, requester, requesting_origin);
 
-    return open_extension_file(*extension, url.serialize_path(), requester);
+    return open_extension_file(*extension, url.serialize_path(), requester, requesting_origin);
 }
 
 // https://developer.chrome.com/docs/extensions/how-to/ui/favicons
-ErrorOr<IPC::File> Application::open_favicon_for_extension(LoadedExtension const& extension, URL::URL const& url, StringView relative_path, ExtensionFileRequester requester)
+ErrorOr<IPC::File> Application::open_favicon_for_extension(LoadedExtension const& extension, URL::URL const& url, StringView relative_path, ExtensionFileRequester requester, Optional<URL::Origin> const& requesting_origin)
 {
     if (!extension_has_permission(extension, "favicon"sv))
         return Error::from_errno(EACCES);
-    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path))
+    if (requester == ExtensionFileRequester::WebPage && !is_web_accessible(extension, relative_path, requesting_origin))
         return Error::from_errno(EACCES);
 
     // The query is form-encoded, as URLSearchParams writes it. The favicon is scaled down to the size, in pixels, which

@@ -157,6 +157,16 @@ bool WebContentClient::may_speak_for_extension(StringView extension_id) const
     return m_hosted_extensions.size() == 1 && m_hosted_extensions.first() == extension_id;
 }
 
+bool WebContentClient::may_make_requests_for_origin(URL::Origin const& origin) const
+{
+    // FIXME: A process that hosted documents of several sites may claim to make requests for any site, as the sites
+    //        it hosted are not kept.
+    if (m_has_hosted_documents_of_several_sites)
+        return true;
+    auto site = URL::Site::serialize_for_partitioning(origin);
+    return site.has_value() && m_site_of_hosted_documents == site;
+}
+
 bool WebContentClient::hosts_an_environment_with_storage_key(Web::StorageAPI::StorageKey const& storage_key)
 {
     bool hosts_one = false;

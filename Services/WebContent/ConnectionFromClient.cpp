@@ -3714,14 +3714,14 @@ void ConnectionFromClient::request_file(Web::PageId page_id, Web::FileRequest fi
     async_did_request_file(page_id, path, id);
 }
 
-void ConnectionFromClient::request_extension_file(Web::PageId page_id, Web::FileRequest file_request)
+void ConnectionFromClient::request_extension_file(Web::PageId page_id, Web::FileRequest file_request, Optional<URL::Origin> const& requesting_origin)
 {
     i32 const id = last_id++;
 
     auto url = file_request.path();
     m_requested_files.set(id, move(file_request));
 
-    async_did_request_extension_file(page_id, url, id);
+    async_did_request_extension_file(page_id, url, requesting_origin, id);
 }
 
 void ConnectionFromClient::request_file_for_webdriver(Web::PageId page_id, u64 command_id, Web::FileRequest file_request)

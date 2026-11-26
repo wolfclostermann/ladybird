@@ -75,6 +75,10 @@ public:
     Optional<URL::URL> const& source_url() const { return m_source_url; }
     void set_source_url(URL::URL source_url) { m_source_url = move(source_url); }
 
+    // The origin of what made the request.
+    Optional<URL::Origin> const& origin() const { return m_origin; }
+    void set_origin(Optional<URL::Origin> origin) { m_origin = move(origin); }
+
     Optional<URL::URL> const& top_level_creation_url() const { return m_top_level_creation_url; }
     void set_top_level_creation_url(Optional<URL::URL> url) { m_top_level_creation_url = move(url); }
 
@@ -103,6 +107,7 @@ private:
     Fetch::Infrastructure::Request::Priority m_priority { Fetch::Infrastructure::Request::Priority::Auto };
     Optional<URL::URL> m_source_url;
     Optional<URL::URL> m_top_level_creation_url;
+    Optional<URL::Origin> m_origin;
     HTTP::Cookie::SameSiteContext m_same_site_context;
     Optional<HTTP::NetworkIsolationKey> m_network_isolation_key;
 };

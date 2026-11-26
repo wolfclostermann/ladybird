@@ -367,7 +367,7 @@ private:
     virtual bool page_did_request_record_reported_session_history_for_testing() override;
     virtual String page_did_request_reported_session_history_for_testing() override;
     virtual void request_file(Web::FileRequest) override;
-    virtual void request_extension_file(Web::FileRequest) override;
+    virtual void request_extension_file(Web::FileRequest, Optional<URL::Origin> const& requesting_origin) override;
     virtual void page_did_call_extension_api(String const& extension_id, String const& context_json, String const& api, String const& arguments_json, u64 call_id) override;
     virtual URL::BlobURLEntry::Token page_did_add_blob_url_entry(Web::HTML::EnvironmentSettingsObject const&, Utf16String const& url, Web::FileAPI::SerializedBlobURLEntry const&) override;
     virtual void page_did_remove_blob_url_entries(Web::HTML::EnvironmentSettingsObject const&, Vector<Utf16String> const& urls) override;

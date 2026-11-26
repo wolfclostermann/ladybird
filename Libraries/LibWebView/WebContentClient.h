@@ -161,6 +161,9 @@ public:
     // Whether the process may speak for the extension: it has hosted the extension's documents and, with site
     // isolation, nothing but them.
     bool may_speak_for_extension(StringView extension_id) const;
+    // Whether the process may make requests for documents of the origin: it has hosted documents of the origin's site,
+    // or, with no site isolation, of several sites, any of which may make requests.
+    bool may_make_requests_for_origin(URL::Origin const&) const;
     // A process can take in a tab of an origin only if all it has ever hosted, and so may still hold, is tabs of that
     // origin with their same-site and data: URL iframes. An origin-keyed tab keeps apart from the other origins of
     // its site, so it only joins origin-keyed tabs of its origin, in a process that has not hosted iframes of those

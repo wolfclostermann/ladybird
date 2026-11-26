@@ -1717,7 +1717,7 @@ void WebContentPage::did_request_file(ByteString path, i32 request_id)
 }
 
 // NB: A renderer reads the files of extensions through the UI process too, which decides which of them its page may read.
-void WebContentPage::did_request_extension_file(ByteString url_string, i32 request_id)
+void WebContentPage::did_request_extension_file(ByteString url_string, Optional<URL::Origin> requesting_origin, i32 request_id)
 {
     auto url = URL::Parser::basic_parse(url_string);
     if (!url.has_value()) {
@@ -1725,7 +1725,7 @@ void WebContentPage::did_request_extension_file(ByteString url_string, i32 reque
         return;
     }
 
-    auto file = Application::the().open_extension_file_for_page(*this, *url);
+    auto file = Application::the().open_extension_file_for_page(*this, *url, requesting_origin);
     if (file.is_error())
         async_handle_file_return(file.error().is_errno() ? file.error().code() : EIO, {}, request_id);
     else
