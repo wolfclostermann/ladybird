@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Marker",
+  "version": "1.0",
+  "permissions": ["storage"],
+  "background": { "service_worker": "bg.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "Marker" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["cs.js"], "css": ["cs.css"], "run_at": "document_end" }]
+}

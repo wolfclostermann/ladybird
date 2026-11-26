@@ -1,0 +1,51 @@
+{
+ "manifest_version": 3,
+ "name": "WAR probe",
+ "version": "0.1",
+ "content_scripts": [
+  {
+   "matches": [
+    "<all_urls>"
+   ],
+   "js": [
+    "cs.js"
+   ],
+   "run_at": "document_start"
+  }
+ ],
+ "web_accessible_resources": [
+  {
+   "resources": [
+    "allowed.js",
+    "allowed.html"
+   ],
+   "matches": [
+    "http://127.0.0.1/*"
+   ]
+  },
+  {
+   "resources": [
+    "elsewhere.js"
+   ],
+   "matches": [
+    "https://example.com/*"
+   ]
+  },
+  {
+   "resources": [
+    "for-extensions.js"
+   ],
+   "extension_ids": [
+    "*"
+   ]
+  },
+  {
+   "resources": [
+    "pub/*"
+   ],
+   "matches": [
+    "<all_urls>"
+   ]
+  }
+ ]
+}

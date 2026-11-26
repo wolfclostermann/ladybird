@@ -1,0 +1,4 @@
+{"manifest_version": 3, "name": "iso-ext", "version": "1.0",
+ "permissions": ["storage", "tabs"],
+ "background": {"page": "bg.html"},
+ "web_accessible_resources": [{"resources": ["public.txt", "public.js"], "matches": ["<all_urls>"]}]}

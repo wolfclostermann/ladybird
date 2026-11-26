@@ -1,0 +1,6 @@
+<script>
+for (const f of ["pub/ok.js", "pub/..%2fsecret.js", "pub%2f..%2fsecret.js", "pub/%2e%2e/secret.js"]) {
+  const s = document.createElement("script"); s.src = "chrome-extension://dcemjojdbakopijleedjjpbedbgegehd/" + f;
+  s.onerror = () => console.log("WAR " + f + ": refused"); document.head.append(s);
+}
+</script>

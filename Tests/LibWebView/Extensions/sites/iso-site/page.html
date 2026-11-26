@@ -1,0 +1,9 @@
+<!DOCTYPE html><head></head><script>
+const load = (id, p) => new Promise(res => { const s = document.createElement("script"); s.src = `chrome-extension://${id}/${p}`; s.onload = () => res("loaded"); s.onerror = () => res("blocked"); document.head.appendChild(s); });
+addEventListener("load", async () => {
+  await new Promise(r => setTimeout(r, 2500));
+  const id = location.hash.slice(1);
+  const a = await load(id, "secret.js"), b = await load(id, "public.js");
+  console.log("ISOTEST web tab: secret.js=" + a + " public.js=" + b + " LEAK=" + window.LEAK);
+});
+</script>

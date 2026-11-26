@@ -1,0 +1,14 @@
+<!doctype html>
+<body data-page="yes">
+<pre id="toy-log">(no idle script)</pre>
+<pre id="page-log"></pre><iframe src="frame.html" style="height:40px"></iframe>
+<script>
+window.pageVariable = 1; window.pageSecret = 42;
+addEventListener("load", () => {
+  document.getElementById("page-log").textContent =
+    `page sees extensionSecret: ${typeof window.extensionSecret !== "undefined"}\n` +
+    `page sees chrome: ${typeof window.chrome !== "undefined"}\n` +
+    `page sees marker: ${!!document.getElementById("toy-marker")}`;
+});
+</script>
+</body>

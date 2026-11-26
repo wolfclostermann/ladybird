@@ -48,8 +48,10 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 
 ## Housekeeping
 
-- [ ] Keep the test extensions and pages (a toy extension, a Vimium test page) in the repo or another permanent
-      place.
+- [x] Keep the test extensions and pages (a toy extension, a Vimium test page) in the repo or another permanent
+      place. They are in `Tests/LibWebView/Extensions/` (see its README), with `tools/fetch-vimium.sh` for Vimium.
+- [ ] WebDriver's Navigate To can't open an extension's own pages (they fail with "Permission denied"), because the
+      browser didn't start the load. Turn the `tools/drive*.py` scripts into `ladybird_python_test`s once it can.
 - [ ] Format the new code with clang-format.
 - [ ] Close the security gaps before everyday use:
   - [x] an extension's frame could share a process with the web page around it;

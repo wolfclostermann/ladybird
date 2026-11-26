@@ -1,0 +1,12 @@
+<script>
+addEventListener("message", e => console.log("WAR " + location.host + " frame: " + e.data));
+const id = "dcemjojdbakopijleedjjpbedbgegehd";
+for (const f of ["allowed.js", "elsewhere.js", "for-extensions.js", "secret.js"]) {
+  const s = document.createElement("script"); s.src = `chrome-extension://${id}/${f}`;
+  s.onerror = () => console.log(`WAR ${location.host} ${f}: refused`);
+  document.head.append(s);
+}
+onload = () => { for (const f of ["allowed.html", "secret.html"]) {
+  const i = document.createElement("iframe"); i.src = `chrome-extension://${id}/${f}`; document.body.append(i);
+} };
+</script><body>

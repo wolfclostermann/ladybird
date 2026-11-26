@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="frame-src 'none'; style-src 'self' 'unsafe-inline'">
+<style>body{font:16px sans-serif} #status{position:fixed;top:0;right:0;background:#ffd;padding:6px;border:1px solid #999;white-space:pre;z-index:1} p{height:120px}</style>
+<div id="status">waiting</div>
+<h1>Vimium test</h1>
+<p><a href="#one">Link one</a> · <a href="#two">Link two</a> · <a href="#three">Link three</a></p>
+<p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p>
+<p><a href="#four">Link four</a> · <a href="#five">Link five</a></p>
+<p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p><p>filler</p>
+<script>
+const log = [];
+const status = (line) => { console.log("VIMTEST " + line); log.push(line); document.getElementById("status").textContent = log.join("\n"); };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const mode = location.hash.slice(1) || "scroll";
+addEventListener("load", async () => {
+    await sleep(1500);
+    if (mode === "scroll") {
+        status(`before j: scrollY=${scrollY}`);
+        for (let i = 0; i < 5; ++i) { internals.sendTextThroughUIProcess("j"); await sleep(150); }
+        await sleep(800);
+        status(`after 5×j: scrollY=${scrollY}`);
+        internals.sendTextThroughUIProcess("k"); await sleep(800);
+        status(`after k: scrollY=${scrollY}`);
+        internals.sendTextThroughUIProcess("G"); await sleep(800);
+        status(`after G: scrollY=${scrollY} (max ${document.documentElement.scrollHeight - innerHeight})`);
+        internals.sendTextThroughUIProcess("gg"); await sleep(800);
+        status(`after gg: scrollY=${scrollY}`);
+    } else if (mode === "zoom") {
+        status(`before: devicePixelRatio=${devicePixelRatio}`);
+        internals.sendTextThroughUIProcess("zi"); await sleep(800);
+        status(`after zi: devicePixelRatio=${devicePixelRatio}`);
+        internals.sendTextThroughUIProcess("zi"); await sleep(800);
+        status(`after zi zi: devicePixelRatio=${devicePixelRatio}`);
+        internals.sendTextThroughUIProcess("z0"); await sleep(800);
+        status(`after z0: devicePixelRatio=${devicePixelRatio}`);
+    } else if (mode === "help" || mode === "vomnibar") {
+        internals.sendTextThroughUIProcess(mode === "help" ? "?" : "T");
+        await sleep(1500);
+        if (mode === "vomnibar") { internals.sendTextThroughUIProcess("vim"); await sleep(1500); }
+        status(`iframes: ${[...document.querySelectorAll("*")].flatMap(e => e.shadowRoot ? [...e.shadowRoot.querySelectorAll("iframe")] : e.tagName === "IFRAME" ? [e] : []).map(f => f.src.split("/").pop() + (f.style.display === "none" ? "(hidden)" : "")).join(", ")}`);
+    } else {
+        internals.sendTextThroughUIProcess("f");
+        await sleep(1000);
+        const host = document.querySelector(".vimium-reset, [class*=vimium], div[id*=vimium]"); status(`vimium elements: ${document.querySelectorAll("[class*=vimium], [id*=vimium]").length}; hint markers: ${document.querySelectorAll(".vimiumHintMarker").length}; shadow hosts: ${[...document.querySelectorAll("*")].filter(e => e.shadowRoot).length}`);
+    }
+});
+</script>

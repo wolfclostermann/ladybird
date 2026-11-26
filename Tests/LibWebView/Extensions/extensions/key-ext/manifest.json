@@ -1,0 +1,2 @@
+{ "manifest_version": 3, "name": "Key driver", "version": "0.1",
+  "content_scripts": [ { "matches": ["https://en.wikipedia.org/*"], "js": ["drive.js"] } ] }

@@ -1,0 +1,2 @@
+{ "manifest_version": 3, "name": "Diag", "version": "1",
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["d.js"], "run_at": "document_start", "all_frames": true, "match_about_blank": true }] }

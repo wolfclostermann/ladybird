@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Action Test",
+  "version": "1.0",
+  "description": "Exercises chrome.action.",
+  "action": { "default_title": "Action test", "default_icon": { "16": "icon16.png" } },
+  "background": { "service_worker": "bg.js" },
+  "permissions": ["tabs"]
+}

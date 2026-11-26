@@ -1,0 +1,3 @@
+{ "manifest_version": 3, "name": "Inject probe", "version": "0.1", "permissions": ["scripting", "tabs"], "host_permissions": ["<all_urls>"],
+  "content_scripts": [{ "matches": ["*://*/never-matches/*"], "js": ["cs.js"] }],
+  "background": { "service_worker": "bg.js" } }

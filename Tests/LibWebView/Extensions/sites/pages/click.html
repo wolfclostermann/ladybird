@@ -1,0 +1,20 @@
+<title>Clicker</title>
+<a id=bg href="B.html">B</a> <a id=fg href="C.html">C</a> <a id=none href="D.html">D</a>
+<script>
+const log = s => console.log("CLICKTEST " + s);
+let step = 0;
+document.addEventListener("keydown", e => {
+  const mac = navigator.platform.startsWith("Mac");
+  const mods = { metaKey: mac, ctrlKey: !mac };
+  if (e.key === "b") { document.getElementById("bg").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...mods })); log("clicked bg"); }
+  if (e.key === "f") { document.getElementById("fg").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true, ...mods })); log("clicked fg"); }
+});
+setTimeout(() => {
+  // Without activation: must not open a tab.
+  document.getElementById("none").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true, ctrlKey: true }));
+  log("clicked none without activation; location=" + location.pathname);
+}, 1000);
+setTimeout(() => internals.sendTextThroughUIProcess("b"), 2000);
+setTimeout(() => internals.sendTextThroughUIProcess("f"), 3000);
+setTimeout(() => log("done; location=" + location.pathname), 5000);
+</script>

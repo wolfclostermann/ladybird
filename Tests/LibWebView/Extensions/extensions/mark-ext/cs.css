@@ -1,0 +1,13 @@
+html { scroll-margin-top: 7px; }
+html::after {
+    content: "Marker is on";
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2147483647;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: #d6249f;
+    color: white;
+    font: 600 14px system-ui, sans-serif;
+}

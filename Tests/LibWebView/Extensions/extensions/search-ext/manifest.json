@@ -1,0 +1,2 @@
+{ "manifest_version": 3, "name": "Search probe", "version": "0.1", "permissions": ["tabs", "search"],
+  "background": { "service_worker": "bg.js" } }
