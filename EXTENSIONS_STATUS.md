@@ -47,6 +47,10 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `2bf3d16bf1c` | `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`; the UI reports what may be reopened (`recently_closed_changed`). |
 | `6454eb37f56` | `runtime.connect`, `tabs.connect` and ports, relayed by the browser process between the two ends it recorded. |
 | `7be35cc1f1d` | `about:extensions` has an Install from File… button for `.crx` (CRX3, signatures checked) and `.zip` files, unpacked into `<profile data>/Extensions/Packed/<id>/`. A manifest `key` now gives the key's ID, so a `.crx` keeps Chromium's ID. |
+| `1e80de73c4b`, `ae5cda5e046` | `runtime.sendMessage` and `runtime.connect` reach every page of the extension but the sending frame (popup, pages in tabs, its frames in web pages); a port connects to every frame that takes it, and closes when its frame is removed. |
+| `54f57d7ca44`, `1e7e10c9d08`, `a9729c36f26` | clang-format, prettier and ruff over the extensions code and its test scripts; `check_libweb_realm_mentions.py` allows `LibWeb/Extensions`. |
+| `d8e58ab9470`, `218fc55c0e2`, `d4770d432f7` | WebDriver's Navigate To opens an extension's pages; `Tests/LibWebView/test-webdriver-extensions.py` (CTest) checks content scripts, extension pages, messaging, reload, remove and state across a restart. |
+| `fb940498c5e` | An unpinned extension's toolbar button shows while its popup is open, and the popup hangs from it (Chromium). |
 
 ### Where the code lives
 

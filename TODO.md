@@ -31,6 +31,12 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] `tabs.update({pinned})`, for Vimium's pin toggle. Fires `tabs.onUpdated` with `pinned`; `tabs.query({pinned})` works.
 - [x] `tabs.onMoved`, also for moves the user makes (worked out from the tab strip order the UI reports).
 - [ ] Moving tabs between windows (`tabs.move` with `windowId`, `tabs.onAttached`/`onDetached`); there is one window, id 1.
+      Needs real windows first, all checked in the Qt UI: the UI reports each window's tab order and focus (today
+      `tab_order_changed` is one flat list), ExtensionHost keeps view -> window and gives `tab.windowId`/`index` per
+      window, `windows.get/getAll/getCurrent/getLastFocused` list real windows, `currentWindow`/`lastFocusedWindow`
+      queries and `tabs.onActivated` use them, `windows.onCreated/onRemoved/onFocusChanged` fire. Then `tabs.move` with
+      `windowId` asks the UI to move the tab (Qt can already drag a tab to another window), and a tab whose window
+      changed in a report fires `onDetached` then `onAttached`.
 - [x] `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`. A closed window lists only
       the tab that was active in it, and `restore` resolves with the session as it was listed (no new tab IDs).
 
