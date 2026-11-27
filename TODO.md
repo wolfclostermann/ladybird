@@ -63,7 +63,6 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] It also checks reload (and a failed one), remove, and that an extension turned off stays off after a restart.
 - [ ] Move the rest of the `tools/drive*.py` checks into it: Try Again, installed folders, Install from File….
 - [x] Format the new code with clang-format (Xcode's 21 on the changed lines), prettier and ruff.
-      `Meta/Linters/check_libweb_realm_mentions.py` still fails: `LibWeb/Extensions/` mentions `JS::Realm`.
 - [ ] Close the security gaps before everyday use:
   - [x] an extension's frame could share a process with the web page around it;
   - [x] the browser process trusted a renderer's claim about which extension is calling an API;
