@@ -68,5 +68,7 @@ repeated.
 
 - `Tests/LibWebView/test-webdriver-extensions.py` (run by CTest as `test-webdriver-extensions`) loads `mark-ext` and
   `msg-ext` through WebDriver: content scripts and turning an extension off on about:extensions, WebDriver opening an
-  extension's page while a web page can't, and messages and ports between the extension's pages.
-- The `tools/drive*.py` scripts cover more of about:extensions (reload, remove, Load Unpacked…) and still run by hand.
+  extension's page while a web page can't, messages and ports between the extension's pages, reloading (also with
+  a broken manifest) and removing an extension, and an extension staying off after a restart.
+- The `tools/drive*.py` scripts cover more of about:extensions (Try Again, installed folders, Install from File…) and
+  still run by hand.

@@ -60,7 +60,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       place. They are in `Tests/LibWebView/Extensions/` (see its README), with `tools/fetch-vimium.sh` for Vimium.
 - [x] WebDriver's Navigate To opens an extension's own pages. `Tests/LibWebView/test-webdriver-extensions.py` checks
       content scripts, extension pages and messaging through WebDriver under CTest.
-- [ ] Move what's left of the `tools/drive*.py` scripts (reload, remove, Load Unpacked…) into that test.
+- [x] It also checks reload (and a failed one), remove, and that an extension turned off stays off after a restart.
+- [ ] Move the rest of the `tools/drive*.py` checks into it: Try Again, installed folders, Install from File….
 - [x] Format the new code with clang-format (Xcode's 21 on the changed lines), prettier and ruff.
       `Meta/Linters/check_libweb_realm_mentions.py` still fails: `LibWeb/Extensions/` mentions `JS::Realm`.
 - [ ] Close the security gaps before everyday use:

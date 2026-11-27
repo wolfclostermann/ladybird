@@ -9,6 +9,7 @@
 # web page can't, and messages and ports reach every page of the extension.
 
 import argparse
+import contextlib
 import http.server
 import runpy
 import shutil
@@ -209,6 +210,121 @@ def check_messaging(session, messages_id):
     print("PASS: messages and ports reach every page of the extension but the sender")
 
 
+def set_enabled(session, extension_id, enabled):
+    session.go("about:extensions")
+    row = f".extension[data-id='{extension_id}']"
+    if session.run(f"return document.querySelector(`{row} input[switch]`).checked") != enabled:
+        session.run(f"document.querySelector(`{row} input[switch]`).click()")
+    session.wait_for(
+        f"return document.querySelector(`{row}`).classList.contains('disabled')",
+        lambda disabled: disabled is not enabled,
+        f"the extension to be turned {'on' if enabled else 'off'}",
+    )
+
+
+def marker_on(session, web_page):
+    session.go(web_page)
+    # The content script runs at document_end, which has passed once a script can run.
+    return session.run("return document.documentElement.getAttribute('data-marker')")
+
+
+def click_row_button(session, extension_id, text):
+    session.run(
+        f"[...document.querySelectorAll(`.extension[data-id='{extension_id}'] button`)].find(b => b.textContent === arguments[0]).click()",
+        text,
+    )
+
+
+def check_state_after_restart(session, web_page, marker_id):
+    session.go("about:extensions")
+    disabled = session.wait_for(
+        f"return document.querySelector(`.extension[data-id='{marker_id}']`)?.classList.contains('disabled')",
+        lambda value: value is not None,
+        "Marker on about:extensions",
+    )
+    assert disabled is True, "Marker was on again after a restart"
+    assert marker_on(session, web_page) is None, "Marker's content script ran after a restart while it was off"
+    set_enabled(session, marker_id, True)
+    print("PASS: an extension turned off stays off after a restart")
+
+
+def check_reload_and_remove(session, web_page, work, marker_id):
+    folder = work / "mark-ext"
+    content_script = folder / "cs.js"
+    manifest = folder / "manifest.json"
+
+    # Reload picks up the extension's changed files.
+    content_script.write_text(content_script.read_text().replace('"on"', '"v2"'))
+    session.go("about:extensions")
+    click_row_button(session, marker_id, "Reload")
+    session.wait_for(
+        f"return document.querySelector(`.extension[data-id='{marker_id}']`) !== null",
+        lambda value: value,
+        "Marker on about:extensions after reloading",
+    )
+    deadline = time.monotonic() + helpers["EVENT_TIMEOUT_SECONDS"]
+    while (marker := marker_on(session, web_page)) != "v2" and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert marker == "v2", f"The reloaded content script set {marker!r}"
+
+    # A reload that fails keeps the version that was loaded, and says why.
+    original_manifest = manifest.read_text()
+    manifest.write_text("{ broken")
+    session.go("about:extensions")
+    click_row_button(session, marker_id, "Reload")
+    failure = session.wait_for(
+        f"return document.querySelector(`.extension[data-id='{marker_id}'] .extension-failure`)?.textContent ?? null",
+        lambda value: value is not None,
+        "the reload to fail",
+    )
+    assert "Could not reload" in failure, failure
+    assert marker_on(session, web_page) == "v2", "A failed reload took away the extension"
+    manifest.write_text(original_manifest)
+
+    # Removing it takes its content scripts out of pages and deletes what it stored, but not its folder.
+    storage = [path for path in (work / "profile").rglob(marker_id) if path.parent.name == "Extensions"]
+    assert storage, "Marker stored nothing, so its removal can't be checked"
+    session.go("about:extensions")
+    click_row_button(session, marker_id, "Remove")
+    assert session.run("return document.querySelector('#remove-dialog').open") is True, "No dialog asked to confirm"
+    session.run("document.querySelector('#remove-dialog button[value=remove]').click()")
+    session.wait_for(
+        f"return document.querySelector(`.extension[data-id='{marker_id}']`) === null",
+        lambda gone: gone,
+        "Marker to leave about:extensions",
+    )
+    assert marker_on(session, web_page) is None, "A removed extension's content script still ran"
+    assert not any(path.exists() for path in storage), f"What Marker stored is still there: {storage}"
+    assert folder.exists(), "Removing an extension deleted the folder it was loaded from"
+    print("PASS: reloading and removing an extension")
+
+
+@contextlib.contextmanager
+def browser(webdriver_binary, work):
+    process, port = helpers["launch_webdriver"](
+        webdriver_binary,
+        "--headless",
+        f"--profile-path={work / 'profile'}",
+        f"--load-extension={work / 'mark-ext'}",
+        f"--load-extension={work / 'msg-ext'}",
+    )
+    session = None
+    try:
+        session = Session(port, helpers["create_session"](port))
+        yield session
+    finally:
+        try:
+            if session is not None:
+                helpers["request"](port, "DELETE", f"/session/{session.id}")
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("webdriver_binary")
@@ -218,37 +334,24 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     web_page = f"http://127.0.0.1:{server.server_address[1]}/"
 
-    with tempfile.TemporaryDirectory() as work:
-        work = Path(work)
-        for name in ("mark-ext", "msg-ext"):
-            shutil.copytree(EXTENSIONS / name, work / name)
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            for name in ("mark-ext", "msg-ext"):
+                shutil.copytree(EXTENSIONS / name, work / name)
 
-        process, port = helpers["launch_webdriver"](
-            webdriver_binary,
-            "--headless",
-            f"--profile-path={work / 'profile'}",
-            f"--load-extension={work / 'mark-ext'}",
-            f"--load-extension={work / 'msg-ext'}",
-        )
-        session = None
-        try:
-            session = Session(port, helpers["create_session"](port))
-            ids = extension_ids(session)
-            check_content_scripts(session, web_page, ids["marker"])
-            check_extension_pages(session, web_page, ids["marker"])
-            check_messaging(session, ids["messages"])
-        finally:
-            try:
-                if session is not None:
-                    helpers["request"](port, "DELETE", f"/session/{session.id}")
-            finally:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                server.shutdown()
+            with browser(webdriver_binary, work) as session:
+                ids = extension_ids(session)
+                check_content_scripts(session, web_page, ids["marker"])
+                check_extension_pages(session, web_page, ids["marker"])
+                check_messaging(session, ids["messages"])
+                set_enabled(session, ids["marker"], False)
+
+            with browser(webdriver_binary, work) as session:
+                check_state_after_restart(session, web_page, ids["marker"])
+                check_reload_and_remove(session, web_page, work, ids["marker"])
+    finally:
+        server.shutdown()
 
 
 if __name__ == "__main__":
