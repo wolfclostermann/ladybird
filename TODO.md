@@ -54,7 +54,11 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       Chromium. Buttons are unpinned by default; pins and their order persist. `action.openPopup` and
       `action.getUserSettings().isOnToolbar` work. Pinned buttons can be dragged into another order.
 - [x] An unpinned extension's button shows while its popup is open, and the popup hangs from it, as in Chromium.
-      Needs checking in the Qt UI: only the popup's position was checked, with the screen locked.
+- [x] Reach `about:extensions` without the puzzle-piece button: an Extensions item in the Ladybird and File menus, and
+      an Extensions tab in `about:settings`, whose switch (on by default) keeps the button while no extensions load.
+- [ ] Keyboard commands: read the manifest's `commands`, fire `commands.onCommand` and `_execute_action` (which also
+      grants `activeTab`), with a shortcuts page on `about:extensions` like `chrome://extensions/shortcuts`.
+      `chrome.commands` is only a placeholder today. Ladybird's own shortcuts stay fixed, as Chromium's are.
 
 ## Other APIs
 

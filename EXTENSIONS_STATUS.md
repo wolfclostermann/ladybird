@@ -51,6 +51,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `54f57d7ca44`, `1e7e10c9d08`, `a9729c36f26` | clang-format, prettier and ruff over the extensions code and its test scripts; `check_libweb_realm_mentions.py` allows `LibWeb/Extensions`. |
 | `d8e58ab9470`, `218fc55c0e2`, `d4770d432f7` | WebDriver's Navigate To opens an extension's pages; `Tests/LibWebView/test-webdriver-extensions.py` (CTest) checks content scripts, extension pages, messaging, reload, remove and state across a restart. |
 | `fb940498c5e` | An unpinned extension's toolbar button shows while its popup is open, and the popup hangs from it (Chromium). |
+| `cac7f68559b` | An Extensions item in the Ladybird and File menus, and an Extensions tab in `about:settings` with a switch that keeps the puzzle-piece button while no extensions are loaded. |
 
 ### Where the code lives
 
@@ -114,6 +115,7 @@ All fixed. `TODO.md` is the live checklist.
 ### APIs still missing
 
 - Writing bookmarks, `notifications`, `alarms`, `contextMenus`.
+- `commands` (keyboard shortcuts for extensions): `chrome.commands` exists but nothing fires; no shortcuts page.
 - `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Not started.
 - Manifest V3 service workers. Background pages are run as MV2-style pages; MV3 extensions that rely on a service
   worker lifecycle won't behave correctly.
@@ -130,8 +132,10 @@ All fixed. `TODO.md` is the live checklist.
 - As in Chromium, extensions with an action are listed in the extensions menu (puzzle-piece button), and only the
   ones the user pins get a toolbar button; new extensions start unpinned. Pins and their order are kept in
   `extensions.json` (`"pinned"`). Pinned buttons can be dragged into another order (Hub `move_pinned_extension`). Right-clicking a button (or ⋮
-  in the menu) offers Options, Pin/Unpin, Turn Off, Remove from Ladybird… and Manage Extensions. The popup of an
-  unpinned extension hangs from the puzzle-piece button (Chromium pops the icon out temporarily instead).
+  in the menu) offers Options, Pin/Unpin, Turn Off, Remove from Ladybird… and Manage Extensions. As in Chromium, an
+  unpinned extension's button shows while its popup is open, and the popup hangs from it.
+- The puzzle-piece button shows while no extensions are loaded, unless the switch on `about:settings` → Extensions
+  (`ui.toolbar.show_extensions_button_without_extensions`) is off. The Ladybird and File menus have an Extensions item.
   `action.openPopup` opens the popup in the active tab and resolves before it has opened. The buttons are not shown
   in the sidebar layouts' collapsed rail.
 - Packed extensions install with Install from File…, but only CRX3 files (CRX2 is refused, as in current Chromium)
