@@ -162,6 +162,8 @@ private:
     virtual void active_view_changed(Optional<u64> view_id) override;
     virtual void tab_order_changed(Vector<u64> view_ids) override;
     virtual void recently_closed_changed(String entries_json) override;
+    virtual void history_visit_recorded(String url, String title, i64 last_visit_time_ms, i64 visit_count, i64 typed_count) override;
+    virtual void history_entries_removed(Optional<Vector<String>> urls) override;
     virtual void answer_clipboard_text(u64 request_id, Utf16String text) override;
     virtual void answer_clipboard_item(u64 request_id, Web::Clipboard::SystemClipboardItem item) override;
     virtual void answer_download_path(u64 request_id, Optional<ByteString> path) override;

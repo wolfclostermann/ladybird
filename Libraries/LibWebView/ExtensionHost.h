@@ -66,6 +66,17 @@ public:
     void tab_order_did_change(ReadonlySpan<u64> previous_order, ReadonlySpan<u64> order);
     // The UI reports the tabs and windows the user may reopen, for the sessions API.
     void recently_closed_did_change(StringView entries_json);
+    // The UI reports what happens to the history, for the events of the history API.
+    struct HistoryVisit {
+        String url;
+        String title;
+        i64 last_visit_time_ms { 0 };
+        i64 visit_count { 0 };
+        i64 typed_count { 0 };
+    };
+    void history_visit_was_recorded(HistoryVisit const&);
+    // The URLs whose entries were removed, or nothing when the whole history was.
+    void history_entries_were_removed(Optional<Vector<String>> const& urls);
     void view_will_be_destroyed(u64 view_id);
     void active_view_did_change(Optional<u64> view_id);
 

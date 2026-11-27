@@ -2265,6 +2265,48 @@ void ExtensionHost::recently_closed_did_change(StringView entries_json)
         broadcast_to_extension_pages("sessions.onChanged"sv, {});
 }
 
+// https://developer.chrome.com/docs/extensions/reference/api/history#type-HistoryItem
+static JsonObject history_item(ExtensionHost::HistoryVisit const& visit)
+{
+    JsonObject item;
+    item.set("id"sv, visit.url);
+    item.set("url"sv, visit.url);
+    item.set("title"sv, visit.title);
+    item.set("lastVisitTime"sv, static_cast<double>(visit.last_visit_time_ms));
+    item.set("visitCount"sv, visit.visit_count);
+    item.set("typedCount"sv, visit.typed_count);
+    return item;
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/history#event-onVisited
+void ExtensionHost::history_visit_was_recorded(HistoryVisit const& visit)
+{
+    if (!dispatches_events())
+        return;
+    JsonArray arguments;
+    arguments.must_append(history_item(visit));
+    broadcast_to_extension_pages("history.onVisited"sv, arguments);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/history#event-onVisitRemoved
+void ExtensionHost::history_entries_were_removed(Optional<Vector<String>> const& urls)
+{
+    if (!dispatches_events())
+        return;
+    // Like Chromium, the URLs are left empty when the whole history was removed.
+    JsonArray removed_urls;
+    if (urls.has_value()) {
+        for (auto const& url : *urls)
+            removed_urls.must_append(url);
+    }
+    JsonObject removed;
+    removed.set("allHistory"sv, !urls.has_value());
+    removed.set("urls"sv, move(removed_urls));
+    JsonArray arguments;
+    arguments.must_append(move(removed));
+    broadcast_to_extension_pages("history.onVisitRemoved"sv, arguments);
+}
+
 void ExtensionHost::history_call(StringView function, JsonArray const& arguments, Completion complete)
 {
     if (function != "search"sv) {
@@ -2290,14 +2332,13 @@ void ExtensionHost::history_call(StringView function, JsonArray const& arguments
                 continue;
             if (visited < start_time || items.size() >= static_cast<size_t>(max_results))
                 break;
-            JsonObject item;
-            item.set("id"sv, entry.url);
-            item.set("url"sv, entry.url);
-            item.set("title"sv, entry.title.value_or({}));
-            item.set("lastVisitTime"sv, visited);
-            item.set("visitCount"sv, entry.visit_count);
-            item.set("typedCount"sv, entry.direct_visit_count);
-            items.must_append(move(item));
+            items.must_append(history_item({
+                .url = entry.url,
+                .title = entry.title.value_or({}),
+                .last_visit_time_ms = entry.last_visited_time.milliseconds_since_epoch(),
+                .visit_count = entry.visit_count,
+                .typed_count = entry.direct_visit_count,
+            }));
         }
     }
     complete(result(items));

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/QuickSort.h>
 #include <AK/Random.h>
 #include <AK/ScopeGuard.h>
 #include <LibCore/Directory.h>
@@ -809,6 +810,86 @@ TEST_CASE(persisted_history_entries_for_same_site_can_be_removed)
     auto store = create_persisted_store(*database);
 
     expect_history_entries_for_same_site_can_be_removed(*store);
+}
+
+// The history API of extensions is told of visits and removals through these callbacks.
+static void expect_history_changes_are_reported(WebView::HistoryStore& store)
+{
+    Vector<WebView::HistoryEntry> visits;
+    Vector<Optional<Vector<String>>> removals;
+    store.on_visit_recorded = [&](WebView::HistoryEntry const& entry) { visits.append(entry); };
+    store.on_entries_removed = [&](Optional<Vector<String>> const& urls) { removals.append(urls); };
+
+    auto example_url = parse_url("https://www.example.com/#fragment"sv);
+    auto subdomain_url = parse_url("https://docs.example.com/guide"sv);
+    auto other_url = parse_url("https://ladybird.dev/"sv);
+
+    store.record_visit(example_url, "Example"_string, UnixDateTime::from_seconds_since_epoch(10), WebView::HistoryVisitTransition::Omnibox);
+    store.record_visit(example_url, {}, UnixDateTime::from_seconds_since_epoch(20));
+    store.record_visit(subdomain_url, "Docs"_string, UnixDateTime::from_seconds_since_epoch(30));
+    store.record_visit(other_url, "Ladybird"_string, UnixDateTime::from_seconds_since_epoch(40));
+    store.record_visit(parse_url("about:blank"sv), {}, UnixDateTime::from_seconds_since_epoch(50));
+
+    // Each visit is told with the URL's entry after it, and URLs the history doesn't keep are not told of.
+    VERIFY(visits.size() == 4);
+    EXPECT_EQ(visits[0].url, "https://www.example.com/"_string);
+    EXPECT_EQ(visits[0].visit_count, 1);
+    EXPECT_EQ(visits[0].direct_visit_count, 1);
+    EXPECT_EQ(visits[1].url, "https://www.example.com/"_string);
+    EXPECT_EQ(visits[1].title, Optional<String> { "Example"_string });
+    EXPECT_EQ(visits[1].visit_count, 2);
+    EXPECT_EQ(visits[1].last_visited_time, UnixDateTime::from_seconds_since_epoch(20));
+    EXPECT_EQ(visits[3].url, "https://ladybird.dev/"_string);
+
+    // Removing a URL the history doesn't have tells nothing.
+    store.remove_entry_for_url(parse_url("https://missing.example.org/"sv));
+    EXPECT(removals.is_empty());
+
+    store.remove_entry_for_url(other_url);
+    VERIFY(removals.size() == 1);
+    EXPECT_EQ(removals[0], Optional<Vector<String>> { Vector { "https://ladybird.dev/"_string } });
+
+    store.record_visit(other_url, "Ladybird"_string, UnixDateTime::from_seconds_since_epoch(40));
+    store.remove_entries_for_same_site(example_url);
+    VERIFY(removals.size() == 2 && removals[1].has_value());
+    auto site_urls = *removals[1];
+    quick_sort(site_urls);
+    EXPECT_EQ(site_urls, (Vector { "https://docs.example.com/guide"_string, "https://www.example.com/"_string }));
+
+    store.remove_entries_accessed_since(UnixDateTime::from_seconds_since_epoch(100));
+    EXPECT_EQ(removals.size(), 2u);
+
+    store.remove_entries_accessed_since(UnixDateTime::from_seconds_since_epoch(35));
+    VERIFY(removals.size() == 3);
+    EXPECT_EQ(removals[2], Optional<Vector<String>> { Vector { "https://ladybird.dev/"_string } });
+
+    // Clearing all of it tells no URLs.
+    store.remove_entries_accessed_since(UnixDateTime::earliest());
+    VERIFY(removals.size() == 4);
+    EXPECT(!removals[3].has_value());
+}
+
+TEST_CASE(history_changes_are_reported)
+{
+    auto store = WebView::HistoryStore::create();
+    expect_history_changes_are_reported(*store);
+}
+
+TEST_CASE(persisted_history_changes_are_reported)
+{
+    auto database_directory = ByteString::formatted(
+        "{}/ladybird-history-store-changes-test-{}",
+        Core::StandardPaths::tempfile_directory(),
+        generate_random_uuid());
+    TRY_OR_FAIL(Core::Directory::create(database_directory, Core::Directory::CreateDirectories::Yes));
+
+    auto cleanup = ScopeGuard([&] {
+        MUST(FileSystem::remove(database_directory, FileSystem::RecursionMode::Allowed));
+    });
+
+    auto database = TRY_OR_FAIL(Database::Database::create(database_directory, "HistoryStore"sv));
+    auto store = create_persisted_store(*database);
+    expect_history_changes_are_reported(*store);
 }
 
 TEST_CASE(persisted_history_requires_favicon_schema)

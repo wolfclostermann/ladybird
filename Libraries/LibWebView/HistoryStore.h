@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/ByteBuffer.h>
+#include <AK/Function.h>
 #include <AK/HashMap.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/Optional.h>
@@ -72,6 +73,11 @@ public:
     void remove_entries_for_same_site(URL::URL const&);
     void remove_entries_accessed_since(UnixDateTime since);
 
+    // For the history API of extensions: told of each visit once it is recorded, and of the URLs whose entries were
+    // removed (nothing when the whole history was).
+    Function<void(HistoryEntry const&)> on_visit_recorded;
+    Function<void(Optional<Vector<String>> const& removed_urls)> on_entries_removed;
+
 private:
     struct Statements {
         Database::StatementID upsert_entry { 0 };
@@ -84,6 +90,7 @@ private:
         Database::StatementID delete_entry { 0 };
         Database::StatementID delete_entries_accessed_since { 0 };
         Database::StatementID all_urls { 0 };
+        Database::StatementID urls_accessed_since { 0 };
         Database::StatementID upsert_omnibox_engagement { 0 };
         Database::StatementID search_omnibox_engagements { 0 };
         Database::StatementID delete_omnibox_engagements_for_url { 0 };
@@ -111,8 +118,8 @@ private:
         virtual Vector<StoredOmniboxEngagement> omnibox_engagements(StringView normalized_url_input, StringView normalized_search_input, size_t limit) = 0;
 
         virtual void remove_entry_for_url(String const& url, RemoveHistoryEntryEngagements) = 0;
-        virtual void remove_entries_for_same_site(StringView site_key) = 0;
-        virtual void remove_entries_accessed_since(UnixDateTime since) = 0;
+        virtual Vector<String> remove_entries_for_same_site(StringView site_key) = 0;
+        virtual Vector<String> remove_entries_accessed_since(UnixDateTime since) = 0;
     };
 
     class TransientStorage : public StorageImpl {
@@ -140,8 +147,8 @@ private:
         virtual Vector<StoredOmniboxEngagement> omnibox_engagements(StringView normalized_url_input, StringView normalized_search_input, size_t limit) override;
 
         virtual void remove_entry_for_url(String const& url, RemoveHistoryEntryEngagements) override;
-        virtual void remove_entries_for_same_site(StringView site_key) override;
-        virtual void remove_entries_accessed_since(UnixDateTime since) override;
+        virtual Vector<String> remove_entries_for_same_site(StringView site_key) override;
+        virtual Vector<String> remove_entries_accessed_since(UnixDateTime since) override;
 
     private:
         Optional<FaviconStore&> m_favicon_store;
@@ -169,8 +176,8 @@ private:
         virtual Vector<StoredOmniboxEngagement> omnibox_engagements(StringView normalized_url_input, StringView normalized_search_input, size_t limit) override;
 
         virtual void remove_entry_for_url(String const& url, RemoveHistoryEntryEngagements) override;
-        virtual void remove_entries_for_same_site(StringView site_key) override;
-        virtual void remove_entries_accessed_since(UnixDateTime since) override;
+        virtual Vector<String> remove_entries_for_same_site(StringView site_key) override;
+        virtual Vector<String> remove_entries_accessed_since(UnixDateTime since) override;
 
     private:
         NonnullRefPtr<Database::Database> m_database;

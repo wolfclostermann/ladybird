@@ -1586,6 +1586,20 @@ void Application::create_session_store(ByteString const& data_directory, bool pe
 
 void Application::create_history_store(ByteString const& data_directory, bool uses_sql_database)
 {
+    // The history API of extensions tells of visits and removals, which happen here.
+    ScopeGuard report_history_changes_to_hub = [this] {
+        m_history_store->on_visit_recorded = [](WebView::HistoryEntry const& entry) {
+            if (auto* hub = HubConnection::the_if_connected()) {
+                hub->async_history_visit_recorded(entry.url, entry.title.value_or({}),
+                    entry.last_visited_time.milliseconds_since_epoch(), entry.visit_count, entry.direct_visit_count);
+            }
+        };
+        m_history_store->on_entries_removed = [](Optional<Vector<String>> const& removed_urls) {
+            if (auto* hub = HubConnection::the_if_connected())
+                hub->async_history_entries_removed(removed_urls);
+        };
+    };
+
     auto create_autocomplete_service = [&](Optional<ByteString> history_database_directory) {
         m_autocomplete_service = make<WebView::AutocompleteService>(Core::EventLoop::current(), move(history_database_directory));
     };

@@ -177,6 +177,22 @@ void ConnectionFromUI::recently_closed_changed(String entries_json)
     Application::the().extension_host().recently_closed_did_change(entries_json);
 }
 
+void ConnectionFromUI::history_visit_recorded(String url, String title, i64 last_visit_time_ms, i64 visit_count, i64 typed_count)
+{
+    Application::the().extension_host().history_visit_was_recorded({
+        .url = move(url),
+        .title = move(title),
+        .last_visit_time_ms = last_visit_time_ms,
+        .visit_count = visit_count,
+        .typed_count = typed_count,
+    });
+}
+
+void ConnectionFromUI::history_entries_removed(Optional<Vector<String>> urls)
+{
+    Application::the().extension_host().history_entries_were_removed(urls);
+}
+
 void ConnectionFromUI::extension_action_clicked(String extension_id, u64 view_id)
 {
     Application::the().extension_host().action_clicked(extension_id, view_id);

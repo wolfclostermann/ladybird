@@ -33,6 +33,9 @@ repeated.
     `Tests/LibWebView/test-webdriver-extensions.py` uses its pages too.
   - `tab-watch-ext`: for trying tab moves, pins and `chrome.sessions` by hand. Its popup lists recently closed tabs
     with Restore buttons and shows tab events live, streamed from the background page over a port.
+  - `history-ext`: `history.onVisited` and `history.onVisitRemoved`, logged as `HISTORY ...` lines. Needs the Qt UI
+    and a profile that keeps history (not WebDriver, whose sessions keep none): visit pages, then use about:history's
+    Remove and Forget, or clear the history in about:settings.
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
   - `csp-ext`: content scripts on a page with a strict CSP and Trusted Types (`sites/csp-site`, served by
     `tools/csp-server.py`).

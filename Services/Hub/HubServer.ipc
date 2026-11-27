@@ -242,6 +242,10 @@ endpoint HubServer
     // The tabs and windows the user closed and may reopen, most recently closed first, as a JSON array of
     // { id, url, title, tabCount, wasWindow, closedAt (seconds since the epoch) }.
     recently_closed_changed(String entries_json) =|
+    // For the history API of extensions: a visit the history recorded, with the URL's entry after it, and the URLs whose
+    // entries were removed (nothing when the whole history was).
+    history_visit_recorded(String url, String title, i64 last_visit_time_ms, i64 visit_count, i64 typed_count) =|
+    history_entries_removed(Optional<Vector<String>> urls) =|
     extension_action_clicked(String extension_id, u64 view_id) =|
     // The menu of an extension's toolbar button.
     open_extension_options_page(String extension_id) =|
