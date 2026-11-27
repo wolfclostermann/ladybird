@@ -37,7 +37,14 @@ async function main() {
     frame.src = "about:blank";
     await sleep(1500);
 
-    log("-- nobody left to receive");
+    log("-- a new frame is removed while bg has a port to it");
+    const second = document.createElement("iframe");
+    second.src = chrome.runtime.getURL("frame.html");
+    document.body.append(second);
+    await sleep(1500);
+    await chrome.runtime.sendMessage({ kind: "do", step: "port-to-gone-frame" });
+    second.remove();
+    await sleep(1500);
     log("done");
 }
 

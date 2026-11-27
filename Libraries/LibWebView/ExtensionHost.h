@@ -58,6 +58,7 @@ public:
 
     // What happens to tabs and their frames, which the events of the tabs and webNavigation APIs tell extensions of.
     void navigable_did_commit(CanonicalNavigable const&);
+    void navigable_will_be_removed(CanonicalNavigable const&);
     void navigable_did_navigate_within_document(CanonicalNavigable const&, URL::URL const& previous_url);
     void view_did_finish_load(ViewImplementation&);
     void view_did_change_title(ViewImplementation&);

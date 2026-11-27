@@ -1805,6 +1805,21 @@ void ExtensionHost::tab_did_update(ViewImplementation& view, JsonObject change_i
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/webNavigation#event-onCommitted
+// A frame whose container went away takes its contexts with it, and their ends of ports.
+void ExtensionHost::navigable_will_be_removed(CanonicalNavigable const& navigable)
+{
+    if (m_ports.is_empty())
+        return;
+    auto view = navigable.top_level_traversable().view();
+    if (!view.has_value())
+        return;
+    auto view_id = view->view_id();
+    auto frame_id = frame_id_of(navigable);
+    close_ports_matching([&](Port const&, PortEnd const& end) {
+        return end.view_id == view_id && end.frame_id == frame_id;
+    });
+}
+
 void ExtensionHost::navigable_did_commit(CanonicalNavigable const& navigable)
 {
     auto view = navigable.top_level_traversable().view();

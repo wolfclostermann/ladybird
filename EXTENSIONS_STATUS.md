@@ -104,7 +104,6 @@ All fixed. `TODO.md` is the live checklist.
 - `search.query` fails until the user chooses a search engine (Ladybird has none by default).
 - `_favicon/` serves no default icon, nothing larger than 1x for HiDPI, and a favicon from history only if it is
   already small enough (decoding happens in another process).
-- A port's end in a removed iframe stays open until its tab navigates or closes.
 - `runtime.sendMessage` with no listener anywhere fails with "Receiving end does not exist", as in Chromium; a
   listener that returns `true` and never responds leaves the sender waiting (Chromium fails it once the page goes).
 

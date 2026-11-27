@@ -547,6 +547,8 @@ void CanonicalTraversable::remove(CanonicalNavigable& navigable)
             remove(*navigable.children().last());
     }
 
+    Application::the().extension_host().navigable_will_be_removed(navigable);
+
     end_history_jobs(navigable);
     navigable.clear_ongoing_navigation();
     navigable.discard_pending_host();

@@ -27,7 +27,7 @@ kept so that the checks can be repeated.
     closing the tab. Logs `PORT ...` lines.
   - `msg-ext`: `runtime.sendMessage` and `runtime.connect` between the background page, a content script and an
     extension page in a frame of the web page: who receives, whose response wins, ports with several receivers, a
-    port closing when its frame navigates, and `tabs.sendMessage` with no listener. Runs headless on any
+    port closing when its frame navigates or is removed, and `tabs.sendMessage` with no listener. Runs headless on any
     `http://127.0.0.1` page and logs `MSG ...` lines.
   - `tab-watch-ext`: for trying tab moves, pins and `chrome.sessions` by hand. Its popup lists recently closed tabs
     with Restore buttons and shows tab events live, streamed from the background page over a port.
