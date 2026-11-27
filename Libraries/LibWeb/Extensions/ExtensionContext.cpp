@@ -5,6 +5,7 @@
  */
 
 #include <AK/HashMap.h>
+#include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonParser.h>
 #include <AK/JsonValue.h>
@@ -443,9 +444,11 @@ static constexpr StringView runtime_source = R"~~~(
             }
         }
 
+        // A context that listened but didn't respond tells so with an empty response, which any other context's
+        // response wins over. Without a listener anywhere, the sender learns that no one received the message.
         if (!respondsLater && !responded) {
             responded = true;
-            respond();
+            respond(listeners.length > 0 ? "" : undefined);
         }
     };
 }
@@ -629,14 +632,18 @@ void dispatch_event(Page& page, String const& extension_id, String const& target
 {
     Optional<String> context_type;
     Optional<u64> frame_id;
+    Optional<u64> excluded_frame_id;
     if (auto target = JsonParser::parse(target_json); !target.is_error() && target.value().is_object()) {
         auto const& object = target.value().as_object();
         if (auto type = object.get_string("contextType"sv); type.has_value())
             context_type = *type;
         frame_id = object.get_integer<u64>("frameId"sv);
+        // The frame that sent a message doesn't receive it.
+        excluded_frame_id = object.get_integer<u64>("excludeFrameId"sv);
     }
 
     Vector<GC::Root<ExtensionContext>> contexts;
+    Vector<u64> frame_ids;
     for (auto const& navigable : page.hosted_navigables()) {
         auto document = navigable->active_document();
         if (!document)
@@ -646,9 +653,13 @@ void dispatch_event(Page& page, String const& extension_id, String const& target
             continue;
         if (context_type.has_value() && *context_type != (context->type() == ExtensionContext::Type::ContentScript ? "content_script"sv : "extension_page"sv))
             continue;
-        if (frame_id.has_value() && *frame_id != frame_id_of(*document))
+        auto document_frame_id = frame_id_of(*document);
+        if (frame_id.has_value() && *frame_id != document_frame_id)
+            continue;
+        if (excluded_frame_id.has_value() && *excluded_frame_id == document_frame_id)
             continue;
         contexts.append(GC::make_root(*context));
+        frame_ids.append(document_frame_id);
     }
 
     if (contexts.is_empty()) {
@@ -656,25 +667,51 @@ void dispatch_event(Page& page, String const& extension_id, String const& target
         return;
     }
 
-    // The first response wins. Without one, the dispatch completes once every context has run its listeners.
+    // The first response wins. An empty response, from a context that listened but didn't respond, gives way to any
+    // other. Without a response, the dispatch completes once every context has run its listeners.
+    //
+    // A port may connect to several frames, so for runtime.onConnect the response is the JSON array of the IDs of the
+    // frames that took the port.
     struct State : RefCounted<State> {
         GC_HOLDS_NO_CELL_EDGES;
         size_t remaining { 0 };
+        bool collects_frames { false };
+        Optional<String> weak_response;
+        JsonArray frames;
         Function<void(Optional<String>)> on_complete;
     };
     auto state = make_ref_counted<State>();
     state->remaining = contexts.size();
+    state->collects_frames = event == "runtime.onConnect"sv;
     state->on_complete = move(on_complete);
 
-    for (auto& context : contexts) {
-        HTML::queue_global_task(HTML::Task::Source::DOMManipulation, context->realm().global_object(), GC::create_function<void()>(context->heap(), GC::captures(context, state, event, arguments_json), [](auto& context, auto& state, auto& event, auto& arguments_json) {
-            context->dispatch_event(event, arguments_json, [state](Optional<String> response) {
+    for (size_t i = 0; i < contexts.size(); ++i) {
+        auto& context = contexts[i];
+        auto context_frame_id = frame_ids[i];
+        HTML::queue_global_task(HTML::Task::Source::DOMManipulation, context->realm().global_object(), GC::create_function<void()>(context->heap(), GC::captures(context, state, event, arguments_json, context_frame_id), [](auto& context, auto& state, auto& event, auto& arguments_json, auto& context_frame_id) {
+            context->dispatch_event(event, arguments_json, [state, context_frame_id](Optional<String> response) {
                 --state->remaining;
                 if (!state->on_complete)
                     return;
-                if (response.has_value() || state->remaining == 0) {
+                if (state->collects_frames) {
+                    if (response.has_value())
+                        state->frames.must_append(context_frame_id);
+                    if (state->remaining == 0) {
+                        auto on_complete = move(state->on_complete);
+                        on_complete(state->frames.is_empty() ? Optional<String> {} : Optional<String> { state->frames.serialized() });
+                    }
+                    return;
+                }
+                if (response.has_value() && !response->is_empty()) {
                     auto on_complete = move(state->on_complete);
                     on_complete(move(response));
+                    return;
+                }
+                if (response.has_value())
+                    state->weak_response = move(response);
+                if (state->remaining == 0) {
+                    auto on_complete = move(state->on_complete);
+                    on_complete(move(state->weak_response));
                 }
             });
         }));

@@ -104,13 +104,12 @@ All fixed. `TODO.md` is the live checklist.
 - `search.query` fails until the user chooses a search engine (Ladybird has none by default).
 - `_favicon/` serves no default icon, nothing larger than 1x for HiDPI, and a favicon from history only if it is
   already small enough (decoding happens in another process).
-- `runtime.connect` reaches only the background page, like `runtime.sendMessage`, not the extension's other pages.
-  A port to all frames of a tab (`tabs.connect` without `frameId`) closes once any of its frames disconnects, and a
-  port's end in a removed iframe stays open until its tab navigates or closes.
+- A port's end in a removed iframe stays open until its tab navigates or closes.
+- `runtime.sendMessage` with no listener anywhere fails with "Receiving end does not exist", as in Chromium; a
+  listener that returns `true` and never responds leaves the sender waiting (Chromium fails it once the page goes).
 
 ### APIs still missing
 
-- `runtime.sendMessage` reaches only the background page, not other extension pages.
 - Writing bookmarks, `notifications`, `alarms`, `contextMenus`.
 - `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Not started.
 - Manifest V3 service workers. Background pages are run as MV2-style pages; MV3 extensions that rely on a service

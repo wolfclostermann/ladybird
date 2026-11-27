@@ -120,26 +120,31 @@ private:
     void tabs_send_message(LoadedExtension const&, JsonArray const& arguments, Completion);
 
     // https://developer.chrome.com/docs/extensions/develop/concepts/messaging#connect
-    // One end of a port: the contexts of a type in a view, in one frame or in all of them.
+    // One end of a port: the contexts of a type in a view, in one frame or in all of them but one.
     struct PortEnd {
         u64 view_id { 0 };
         String context_type;
         Optional<u64> frame_id;
+        Optional<u64> excluded_frame_id;
 
         bool contains(u64 view_id, StringView context_type, u64 frame_id) const;
         bool operator==(PortEnd const&) const = default;
     };
+    // As in Chromium, a port connects its opener to every frame that took it in a listener of runtime.onConnect.
     struct Port {
         String extension_id;
         String name;
         PortEnd opener;
-        PortEnd receiver;
-        // Until the receiver is told of the port, the opener's messages wait.
-        bool receiver_was_told { false };
+        // The contexts the port was offered to until they answer, then the frames that took it.
+        Vector<PortEnd> receivers;
+        bool receivers_were_told { false };
+        bool receivers_are_known { false };
+        // Until the receivers are known, the opener's messages wait.
         Vector<JsonValue> waiting_messages;
     };
     void port_call(WebContentPage&, LoadedExtension const&, Context const&, StringView api, JsonArray const& arguments, Completion);
     void connect_port(String const& port_id, JsonObject sender);
+    static JsonObject target_for_port_end(PortEnd const&);
     void send_to_port_end(String const& extension_id, PortEnd const&, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete = [](auto) { });
     // Closes the port, telling the ends that are not the one that closed it, with the error if there is one.
     void close_port(String const& port_id, Optional<PortEnd> closed_by, Optional<StringView> error = {});
@@ -169,6 +174,16 @@ private:
     void save_storage(LoadedExtension const&);
 
     void dispatch_event_to_page(WebContentPage&, String const& extension_id, JsonObject const& target, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete);
+    struct ViewResponse {
+        u64 view_id { 0 };
+        String response;
+    };
+    // The response that wins: the first that isn't empty, else an empty one, from a context that listened but didn't
+    // respond.
+    static Optional<String> winning_response(Vector<ViewResponse> const&);
+    // Dispatches the event to the views, with the target that target_for gives for each, and collects the responses,
+    // in the order they came.
+    void dispatch_event_to_views(Vector<ViewImplementation&>, String const& extension_id, Function<JsonObject(ViewImplementation&)> target_for, StringView event, JsonArray const& arguments, Function<void(Vector<ViewResponse>)> on_complete);
 
     struct PendingDispatch {
         // NB: Only compared with the page that answers, never dereferenced.

@@ -1,0 +1,10 @@
+{
+    "manifest_version": 3,
+    "name": "Message probe",
+    "version": "0.1",
+    "description": "Checks that runtime.sendMessage and runtime.connect reach every page of the extension.",
+    "permissions": ["tabs"],
+    "background": { "service_worker": "bg.js" },
+    "content_scripts": [{ "matches": ["http://127.0.0.1/*", "http://localhost/*"], "js": ["content.js"] }],
+    "web_accessible_resources": [{ "resources": ["frame.html", "frame.js"], "matches": ["<all_urls>"] }]
+}

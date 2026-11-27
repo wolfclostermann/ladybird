@@ -50,8 +50,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 
 ## Other APIs
 
-- [x] `runtime.connect`, `tabs.connect` and ports. Like `runtime.sendMessage`, `runtime.connect` reaches only the
-      background page.
+- [x] `runtime.connect`, `tabs.connect` and ports.
+- [x] `runtime.sendMessage` and `runtime.connect` reach every page of the extension (popup, pages in tabs, its frames
+      in web pages), not only the background page. A port connects to every frame that takes it, as in Chromium.
 
 ## Housekeeping
 

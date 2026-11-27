@@ -647,35 +647,60 @@ JsonObject ExtensionHost::sender_for(WebContentPage& page, LoadedExtension const
     return sender;
 }
 
+// The views that show a document of the extension, in a tab, a popup, its background view, or a frame of a web page.
+static Vector<ViewImplementation&> views_showing_extension(String const& extension_id)
+{
+    Vector<ViewImplementation&> views;
+    ViewImplementation::for_each_view([&](ViewImplementation& view) {
+        if (!view.has_traversable())
+            return IterationDecision::Continue;
+        auto shows_extension = false;
+        view.traversable().for_each_in_inclusive_subtree([&](CanonicalNavigable const& navigable) {
+            if (navigable.active_session_history_entry() && navigable.active_document().extension_id() == extension_id) {
+                shows_extension = true;
+                return IterationDecision::Break;
+            }
+            return IterationDecision::Continue;
+        });
+        if (shows_extension)
+            views.append(view);
+        return IterationDecision::Continue;
+    });
+    return views;
+}
+
 // https://developer.chrome.com/docs/extensions/reference/api/runtime#method-sendMessage
 void ExtensionHost::runtime_send_message(WebContentPage& page, LoadedExtension const& extension, Context const& context, JsonArray const& arguments, Completion complete)
 {
-    // The message goes to the extension's pages. Only its background page is known to receive messages so far.
-    // FIXME: Send it to the extension's other pages too, such as one shown in a tab.
-    auto* background_view = Application::the().extension_background_view(extension.id);
-    if (!background_view || background_view == &page.view()) {
-        complete(error("Could not establish connection. Receiving end does not exist."sv));
-        return;
-    }
-
+    // The message goes to every page of the extension but the frame that sent it, as in Chromium: its background page,
+    // its popup, its pages in tabs and its frames in web pages. The first response wins.
     JsonArray event_arguments;
     event_arguments.must_append(arguments.is_empty() ? JsonValue {} : arguments.at(0));
     event_arguments.must_append(sender_for(page, extension, context));
 
-    // NB: The message may wait for the background page, which is gone if the extension is turned off meanwhile.
-    auto send = [this, extension_id = extension.id, event_arguments = move(event_arguments), complete = move(complete)]() mutable {
-        auto* background_view = Application::the().extension_background_view(extension_id);
-        if (!background_view) {
+    // NB: The message may wait for the background page, and the extension may be turned off meanwhile.
+    auto send = [this, extension_id = extension.id, sender_view_id = page.view().view_id(), sender_frame_id = context.frame_id, event_arguments = move(event_arguments), complete = move(complete)]() mutable {
+        if (!Application::the().extension_with_id(extension_id)) {
             complete(error("Could not establish connection. Receiving end does not exist."sv));
             return;
         }
-        JsonObject target;
-        target.set("contextType"sv, "extension_page"sv);
-        dispatch_event(*background_view, extension_id, target, "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Optional<String> response) mutable {
-            complete({ .is_error = false, .payload = response.value_or({}) });
+        auto target_for = [&](ViewImplementation& view) {
+            JsonObject target;
+            target.set("contextType"sv, "extension_page"sv);
+            if (view.view_id() == sender_view_id)
+                target.set("excludeFrameId"sv, sender_frame_id);
+            return target;
+        };
+        dispatch_event_to_views(views_showing_extension(extension_id), extension_id, move(target_for), "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Vector<ViewResponse> responses) mutable {
+            auto response = winning_response(responses);
+            if (!response.has_value()) {
+                complete(error("Could not establish connection. Receiving end does not exist."sv));
+                return;
+            }
+            complete({ .is_error = false, .payload = response.release_value() });
         });
     };
-    if (!m_loaded_background_pages.contains(extension.id)) {
+    if (Application::the().extension_background_view(extension.id) && !m_loaded_background_pages.contains(extension.id)) {
         m_waiting_for_background_page.ensure(extension.id).append(move(send));
         return;
     }
@@ -727,7 +752,11 @@ void ExtensionHost::background_page_did_load(LoadedExtension const& extension)
 
 bool ExtensionHost::PortEnd::contains(u64 other_view_id, StringView other_context_type, u64 other_frame_id) const
 {
-    return view_id == other_view_id && context_type == other_context_type && (!frame_id.has_value() || *frame_id == other_frame_id);
+    if (view_id != other_view_id || context_type != other_context_type)
+        return false;
+    if (frame_id.has_value() && *frame_id != other_frame_id)
+        return false;
+    return !excluded_frame_id.has_value() || *excluded_frame_id != other_frame_id;
 }
 
 // https://developer.chrome.com/docs/extensions/develop/concepts/messaging#connect
@@ -743,24 +772,41 @@ void ExtensionHost::port_call(WebContentPage& page, LoadedExtension const& exten
         if (!port.has_value() || port->extension_id != extension.id)
             return complete(error("Attempting to use a disconnected port object"sv));
         auto from_opener = port->opener.contains(caller_view_id, context.type, context.frame_id);
-        if (!from_opener && !port->receiver.contains(caller_view_id, context.type, context.frame_id))
+        auto receiver_index = port->receivers.find_first_index_if([&](PortEnd const& end) {
+            return end.contains(caller_view_id, context.type, context.frame_id);
+        });
+        if (!from_opener && !receiver_index.has_value())
             return complete(error("Attempting to use a disconnected port object"sv));
 
         if (api == "runtime.port.disconnect"sv) {
-            auto closed_by = from_opener ? port->opener : port->receiver;
-            close_port(port_id, move(closed_by));
+            if (from_opener) {
+                close_port(port_id, port->opener);
+                return complete(undefined_result());
+            }
+            // The opener is told once the last of the frames that took the port lets go of it.
+            auto receiver = port->receivers[*receiver_index];
+            if (port->receivers_are_known && port->receivers.size() > 1) {
+                port->receivers.remove(*receiver_index);
+                return complete(undefined_result());
+            }
+            close_port(port_id, move(receiver));
             return complete(undefined_result());
         }
 
         auto message = argument(1);
-        if (from_opener && !port->receiver_was_told) {
+        if (from_opener && !port->receivers_are_known) {
             port->waiting_messages.append(move(message));
             return complete(undefined_result());
         }
         JsonArray event_arguments;
         event_arguments.must_append(port_id);
         event_arguments.must_append(move(message));
-        send_to_port_end(extension.id, from_opener ? port->receiver : port->opener, "runtime.port.onMessage"sv, event_arguments);
+        if (from_opener) {
+            for (auto const& receiver : port->receivers)
+                send_to_port_end(extension.id, receiver, "runtime.port.onMessage"sv, event_arguments);
+        } else {
+            send_to_port_end(extension.id, port->opener, "runtime.port.onMessage"sv, event_arguments);
+        }
         return complete(undefined_result());
     }
 
@@ -771,27 +817,29 @@ void ExtensionHost::port_call(WebContentPage& page, LoadedExtension const& exten
     Port port {
         .extension_id = extension.id,
         .name = argument(1).is_string() ? argument(1).as_string() : String {},
-        .opener = { .view_id = caller_view_id, .context_type = context.type, .frame_id = context.frame_id },
-        .receiver = {},
-        .receiver_was_told = false,
+        .opener = { .view_id = caller_view_id, .context_type = context.type, .frame_id = context.frame_id, .excluded_frame_id = {} },
+        .receivers = {},
+        .receivers_were_told = false,
+        .receivers_are_known = false,
         .waiting_messages = {},
     };
 
     JsonObject sender;
     if (api == "runtime.connect"sv) {
-        // FIXME: Connect to the extension's other pages too, such as its popup, as Chromium does. Like
-        //        runtime.sendMessage, this reaches only the background page.
-        auto* background_view = Application::the().extension_background_view(extension.id);
-        if (!background_view || background_view->view_id() == caller_view_id)
-            return complete(error("Could not establish connection. Receiving end does not exist."sv));
-        port.receiver = { .view_id = background_view->view_id(), .context_type = "extension_page"_string, .frame_id = 0 };
+        // As for runtime.sendMessage, the port is offered to every page of the extension but the frame that opened it.
+        for (auto& view : views_showing_extension(extension.id)) {
+            PortEnd end { .view_id = view.view_id(), .context_type = "extension_page"_string, .frame_id = {}, .excluded_frame_id = {} };
+            if (view.view_id() == caller_view_id)
+                end.excluded_frame_id = context.frame_id;
+            port.receivers.append(move(end));
+        }
         sender = sender_for(page, extension, context);
     } else {
         auto tab_id = argument(2).get_integer<i64>();
         auto view = tab_id.has_value() ? tab_view_with_id(*tab_id) : Optional<ViewImplementation&> {};
         if (!view.has_value())
             return complete(error("Could not establish connection. Receiving end does not exist."sv));
-        port.receiver = { .view_id = view->view_id(), .context_type = "content_script"_string, .frame_id = argument(3).get_integer<u64>() };
+        port.receivers.append({ .view_id = view->view_id(), .context_type = "content_script"_string, .frame_id = argument(3).get_integer<u64>(), .excluded_frame_id = {} });
 
         sender.set("id"sv, extension.id);
         sender.set("url"sv, context.url);
@@ -802,7 +850,7 @@ void ExtensionHost::port_call(WebContentPage& page, LoadedExtension const& exten
     complete(undefined_result());
 
     // The background page may still be loading, as for runtime.sendMessage.
-    if (api == "runtime.connect"sv && !m_loaded_background_pages.contains(extension.id)) {
+    if (api == "runtime.connect"sv && Application::the().extension_background_view(extension.id) && !m_loaded_background_pages.contains(extension.id)) {
         m_waiting_for_background_page.ensure(extension.id).append([this, port_id, sender = move(sender)]() mutable {
             connect_port(port_id, move(sender));
         });
@@ -816,26 +864,75 @@ void ExtensionHost::connect_port(String const& port_id, JsonObject sender)
     auto port = m_ports.get(port_id);
     if (!port.has_value())
         return;
+    if (!Application::the().extension_with_id(port->extension_id)) {
+        close_port(port_id, {}, "Could not establish connection. Receiving end does not exist."sv);
+        return;
+    }
 
     JsonArray arguments;
     arguments.must_append(port_id);
     arguments.must_append(port->name);
     arguments.must_append(move(sender));
-    // The receiver responds if one of its contexts listens, and so has taken the port.
-    send_to_port_end(port->extension_id, port->receiver, "runtime.onConnect"sv, arguments, [this, port_id](Optional<String> response) {
-        if (!response.has_value() && m_ports.contains(port_id))
-            close_port(port_id, {}, "Could not establish connection. Receiving end does not exist."sv);
-    });
 
-    // NB: Events to a page arrive in order, so the messages come after the port.
-    port->receiver_was_told = true;
-    for (auto& message : port->waiting_messages) {
-        JsonArray message_arguments;
-        message_arguments.must_append(port_id);
-        message_arguments.must_append(move(message));
-        send_to_port_end(port->extension_id, port->receiver, "runtime.port.onMessage"sv, message_arguments);
+    Vector<ViewImplementation&> views;
+    HashMap<u64, PortEnd> offers;
+    for (auto const& end : port->receivers) {
+        if (auto view = ViewImplementation::find_view_by_id(end.view_id); view.has_value()) {
+            views.append(*view);
+            offers.set(end.view_id, end);
+        }
     }
-    port->waiting_messages.clear();
+    port->receivers_were_told = true;
+
+    // Each page answers with the frames whose contexts listen, and so have taken the port.
+    auto target_for = [&](ViewImplementation& view) { return target_for_port_end(*offers.get(view.view_id())); };
+    dispatch_event_to_views(views, port->extension_id, move(target_for), "runtime.onConnect"sv, arguments, [this, port_id, offers](Vector<ViewResponse> responses) {
+        auto port = m_ports.get(port_id);
+        if (!port.has_value())
+            return;
+
+        Vector<PortEnd> receivers;
+        for (auto const& response : responses) {
+            auto offer = offers.get(response.view_id);
+            auto frame_ids = JsonParser::parse(response.response);
+            if (!offer.has_value() || frame_ids.is_error() || !frame_ids.value().is_array() || !ViewImplementation::find_view_by_id(response.view_id).has_value())
+                continue;
+            frame_ids.value().as_array().for_each([&](JsonValue const& frame_id) {
+                auto id = frame_id.get_integer<u64>();
+                if (!id.has_value() || !offer->contains(response.view_id, offer->context_type, *id))
+                    return;
+                PortEnd receiver { .view_id = response.view_id, .context_type = offer->context_type, .frame_id = *id, .excluded_frame_id = {} };
+                if (!receivers.contains_slow(receiver))
+                    receivers.append(move(receiver));
+            });
+        }
+        if (receivers.is_empty()) {
+            close_port(port_id, {}, "Could not establish connection. Receiving end does not exist."sv);
+            return;
+        }
+
+        port->receivers = move(receivers);
+        port->receivers_are_known = true;
+        for (auto& message : port->waiting_messages) {
+            JsonArray message_arguments;
+            message_arguments.must_append(port_id);
+            message_arguments.must_append(move(message));
+            for (auto const& receiver : port->receivers)
+                send_to_port_end(port->extension_id, receiver, "runtime.port.onMessage"sv, message_arguments);
+        }
+        port->waiting_messages.clear();
+    });
+}
+
+JsonObject ExtensionHost::target_for_port_end(PortEnd const& end)
+{
+    JsonObject target;
+    target.set("contextType"sv, end.context_type);
+    if (end.frame_id.has_value())
+        target.set("frameId"sv, *end.frame_id);
+    if (end.excluded_frame_id.has_value())
+        target.set("excludeFrameId"sv, *end.excluded_frame_id);
+    return target;
 }
 
 void ExtensionHost::send_to_port_end(String const& extension_id, PortEnd const& end, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete)
@@ -845,11 +942,7 @@ void ExtensionHost::send_to_port_end(String const& extension_id, PortEnd const& 
         on_complete({});
         return;
     }
-    JsonObject target;
-    target.set("contextType"sv, end.context_type);
-    if (end.frame_id.has_value())
-        target.set("frameId"sv, *end.frame_id);
-    dispatch_event(*view, extension_id, target, event, arguments, move(on_complete));
+    dispatch_event(*view, extension_id, target_for_port_end(end), event, arguments, move(on_complete));
 }
 
 void ExtensionHost::close_port(String const& port_id, Optional<PortEnd> closed_by, Optional<StringView> error)
@@ -863,27 +956,38 @@ void ExtensionHost::close_port(String const& port_id, Optional<PortEnd> closed_b
     if (error.has_value())
         arguments.must_append(MUST(String::from_utf8(*error)));
     // NB: An end that closed the port knows; telling it again would do nothing, as it has forgotten the port.
-    for (auto const* end : { &port->opener, &port->receiver }) {
-        if (closed_by == *end)
-            continue;
-        if (end == &port->receiver && !port->receiver_was_told)
-            continue;
-        send_to_port_end(port->extension_id, *end, "runtime.port.onDisconnect"sv, arguments);
+    if (closed_by != port->opener)
+        send_to_port_end(port->extension_id, port->opener, "runtime.port.onDisconnect"sv, arguments);
+    if (!port->receivers_were_told)
+        return;
+    for (auto const& receiver : port->receivers) {
+        if (closed_by != receiver)
+            send_to_port_end(port->extension_id, receiver, "runtime.port.onDisconnect"sv, arguments);
     }
 }
 
-// Closes the ports with an end that is gone: its view closed, its frame navigated, or its extension went.
+// Closes the ports with an end that is gone: its view closed, its frame navigated, or its extension went. A port with
+// several receivers stays open until the last goes.
 void ExtensionHost::close_ports_matching(Function<bool(Port const&, PortEnd const&)> end_is_gone)
 {
     Vector<String> port_ids;
     Vector<PortEnd> gone_ends;
-    for (auto const& [port_id, port] : m_ports) {
-        for (auto const* end : { &port.opener, &port.receiver }) {
-            if (end_is_gone(port, *end)) {
-                port_ids.append(port_id);
-                gone_ends.append(*end);
-                break;
-            }
+    for (auto& [port_id, port] : m_ports) {
+        if (end_is_gone(port, port.opener)) {
+            port_ids.append(port_id);
+            gone_ends.append(port.opener);
+            continue;
+        }
+        Optional<PortEnd> gone_receiver;
+        port.receivers.remove_all_matching([&](PortEnd const& receiver) {
+            if (!end_is_gone(port, receiver))
+                return false;
+            gone_receiver = receiver;
+            return true;
+        });
+        if (gone_receiver.has_value() && port.receivers_are_known && port.receivers.is_empty()) {
+            port_ids.append(port_id);
+            gone_ends.append(gone_receiver.release_value());
         }
     }
     for (size_t i = 0; i < port_ids.size(); ++i)
@@ -918,7 +1022,12 @@ void ExtensionHost::tabs_send_message(LoadedExtension const& extension, JsonArra
     }
 
     dispatch_event(*view, extension.id, target, "runtime.onMessage"sv, event_arguments, [complete = move(complete)](Optional<String> response) mutable {
-        complete({ .is_error = false, .payload = response.value_or({}) });
+        // Without a listener in the tab, no one received the message.
+        if (!response.has_value()) {
+            complete(error("Could not establish connection. Receiving end does not exist."sv));
+            return;
+        }
+        complete({ .is_error = false, .payload = response.release_value() });
     });
 }
 
@@ -1100,31 +1209,60 @@ void ExtensionHost::dispatch_event_to_page(WebContentPage& page, String const& e
     page.async_dispatch_extension_event(extension_id, target.serialized(), MUST(String::from_utf8(event)), arguments.serialized(), dispatch_id);
 }
 
+Optional<String> ExtensionHost::winning_response(Vector<ViewResponse> const& responses)
+{
+    for (auto const& response : responses) {
+        if (!response.response.is_empty())
+            return response.response;
+    }
+    if (!responses.is_empty())
+        return String {};
+    return {};
+}
+
 void ExtensionHost::dispatch_event(ViewImplementation& view, String const& extension_id, JsonObject const& target, StringView event, JsonArray const& arguments, Function<void(Optional<String>)> on_complete)
 {
-    auto pages = pages_hosting_frames_of(view, target.get_integer<u64>("frameId"sv));
-    if (pages.is_empty()) {
+    Vector<ViewImplementation&> views;
+    views.append(view);
+    dispatch_event_to_views(views, extension_id, [&](ViewImplementation&) { return target; }, event, arguments, [on_complete = move(on_complete)](Vector<ViewResponse> responses) {
+        on_complete(winning_response(responses));
+    });
+}
+
+void ExtensionHost::dispatch_event_to_views(Vector<ViewImplementation&> views, String const& extension_id, Function<JsonObject(ViewImplementation&)> target_for, StringView event, JsonArray const& arguments, Function<void(Vector<ViewResponse>)> on_complete)
+{
+    struct Dispatch {
+        NonnullRefPtr<WebContentPage> page;
+        u64 view_id { 0 };
+        JsonObject target;
+    };
+    Vector<Dispatch> dispatches;
+    for (auto& view : views) {
+        auto target = target_for(view);
+        for (auto& page : pages_hosting_frames_of(view, target.get_integer<u64>("frameId"sv)))
+            dispatches.append({ .page = move(page), .view_id = view.view_id(), .target = target });
+    }
+    if (dispatches.is_empty()) {
         on_complete({});
         return;
     }
 
-    // The first response wins, as in Chromium; the others are dropped.
     struct State : RefCounted<State> {
-        Function<void(Optional<String>)> on_complete;
-        Optional<String> response;
+        Function<void(Vector<ViewResponse>)> on_complete;
+        Vector<ViewResponse> responses;
         size_t remaining { 0 };
     };
     auto state = make_ref_counted<State>();
     state->on_complete = move(on_complete);
-    state->remaining = pages.size();
+    state->remaining = dispatches.size();
 
-    for (auto& page : pages) {
-        dispatch_event_to_page(page, extension_id, target, event, arguments, [state](Optional<String> response) {
-            if (!state->response.has_value() && response.has_value())
-                state->response = move(response);
+    for (auto& dispatch : dispatches) {
+        dispatch_event_to_page(dispatch.page, extension_id, dispatch.target, event, arguments, [state, view_id = dispatch.view_id](Optional<String> response) {
+            if (response.has_value())
+                state->responses.append({ .view_id = view_id, .response = response.release_value() });
             if (--state->remaining == 0 && state->on_complete) {
                 auto on_complete = move(state->on_complete);
-                on_complete(move(state->response));
+                on_complete(move(state->responses));
             }
         });
     }
