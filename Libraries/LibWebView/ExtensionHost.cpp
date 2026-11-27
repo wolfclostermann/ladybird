@@ -2445,42 +2445,6 @@ static JsonObject permissions_as_json(Vector<String> const& permissions, Vector<
     return object;
 }
 
-// What the user is told an extension asks for, much as Chromium words its warnings.
-// https://developer.chrome.com/docs/extensions/reference/permissions-list
-static String describe_permission(StringView permission)
-{
-    if (permission == "history"sv)
-        return "Read and change your browsing history"_string;
-    if (permission == "bookmarks"sv)
-        return "Read and change your bookmarks"_string;
-    if (permission == "tabs"sv)
-        return "Read your browsing history"_string;
-    if (permission == "sessions"sv)
-        return "Read your recently closed tabs"_string;
-    if (permission == "webNavigation"sv)
-        return "Read your browsing history"_string;
-    if (permission == "notifications"sv)
-        return "Display notifications"_string;
-    if (permission == "clipboardRead"sv)
-        return "Read data you copy and paste"_string;
-    if (permission == "clipboardWrite"sv)
-        return "Modify data you copy and paste"_string;
-    return MUST(String::formatted("Use \"{}\"", permission));
-}
-
-static String describe_origin(StringView origin)
-{
-    if (origin == "<all_urls>"sv || origin == "*://*/*"sv || origin == "http://*/*"sv || origin == "https://*/*"sv)
-        return "Read and change all your data on all websites"_string;
-    auto host = origin;
-    if (auto separator = host.find("://"sv); separator.has_value())
-        host = host.substring_view(*separator + 3);
-    host = host.substring_view(0, host.find('/').value_or(host.length()));
-    if (host.starts_with("*."sv))
-        return MUST(String::formatted("Read and change your data on all {} sites", host.substring_view(2)));
-    return MUST(String::formatted("Read and change your data on {}", host));
-}
-
 void ExtensionHost::permissions_call(LoadedExtension const& extension, StringView function, JsonArray const& arguments, Completion complete)
 {
     auto wanted = !arguments.is_empty() && arguments.at(0).is_object() ? arguments.at(0).as_object() : JsonObject {};
@@ -2544,9 +2508,9 @@ void ExtensionHost::permissions_call(LoadedExtension const& extension, StringVie
                 descriptions.append(move(description));
         };
         for (auto const& origin : new_origins)
-            describe(describe_origin(origin));
+            describe(describe_extension_origin(origin));
         for (auto const& permission : new_permissions)
-            describe(describe_permission(permission));
+            describe(describe_extension_permission(permission));
 
         // NB: The extension may be turned off or removed while the user decides, so it is looked up again.
         Application::the().ask_user_to_grant_extension_permissions(extension.name, descriptions)->when_resolved([this, extension_id = extension.id, new_permissions, new_origins, complete = move(complete)](bool granted) mutable {
@@ -2578,25 +2542,35 @@ void ExtensionHost::permissions_call(LoadedExtension const& extension, StringVie
             || any_of(wanted_origins, [&](auto const& origin) { return required.origins.contains_slow(origin); }))
             return complete(error("You cannot remove required permissions."_string));
 
-        ExtensionPermissions now_granted;
-        Vector<String> removed_permissions;
-        Vector<String> removed_origins;
-        for (auto const& permission : extension.granted_permissions)
-            (wanted_permissions.contains_slow(permission) ? removed_permissions : now_granted.permissions).append(permission);
-        for (auto const& origin : extension.granted_origins)
-            (wanted_origins.contains_slow(origin) ? removed_origins : now_granted.origins).append(origin);
-
-        if (!removed_permissions.is_empty() || !removed_origins.is_empty()) {
-            auto extension_id = extension.id;
-            Application::the().set_extension_granted_permissions(extension_id, move(now_granted));
-            JsonArray event_arguments;
-            event_arguments.must_append(permissions_as_json(removed_permissions, removed_origins));
-            broadcast_event(extension_id, "permissions.onRemoved"sv, event_arguments);
-        }
+        // NB: Revoking changes the extension, so the ID is copied first.
+        auto extension_id = extension.id;
+        revoke_granted_permissions(extension_id, { wanted_permissions, wanted_origins });
         return complete(result(true));
     }
 
     complete(error(MUST(String::formatted("chrome.permissions.{} is not implemented yet", function))));
+}
+
+void ExtensionHost::revoke_granted_permissions(String const& extension_id, ExtensionPermissions const& revoked)
+{
+    auto const* extension = Application::the().extension_with_id(extension_id);
+    if (!extension)
+        return;
+
+    ExtensionPermissions now_granted;
+    ExtensionPermissions removed;
+    for (auto const& permission : extension->granted_permissions)
+        (revoked.permissions.contains_slow(permission) ? removed.permissions : now_granted.permissions).append(permission);
+    for (auto const& origin : extension->granted_origins)
+        (revoked.origins.contains_slow(origin) ? removed.origins : now_granted.origins).append(origin);
+    if (removed.permissions.is_empty() && removed.origins.is_empty())
+        return;
+
+    Application::the().set_extension_granted_permissions(extension_id, move(now_granted));
+    // https://developer.chrome.com/docs/extensions/reference/api/permissions#event-onRemoved
+    JsonArray event_arguments;
+    event_arguments.must_append(permissions_as_json(removed.permissions, removed.origins));
+    broadcast_event(extension_id, "permissions.onRemoved"sv, event_arguments);
 }
 
 // https://developer.chrome.com/docs/extensions/develop/concepts/activeTab#what-activeTab-allows

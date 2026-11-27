@@ -24,6 +24,7 @@
 namespace WebView {
 
 class ExtensionActions;
+struct ExtensionPermissions;
 struct LoadedExtension;
 class WebContentPage;
 
@@ -83,6 +84,10 @@ public:
     // tab, which still shows a page of the origin it showed then.
     // https://developer.chrome.com/docs/extensions/develop/concepts/activeTab
     bool has_active_tab_access(String const& extension_id, u64 view_id, URL::URL const&) const;
+
+    // Takes back optional permissions and host permissions the user granted an extension, as permissions.remove does,
+    // and tells the extension with permissions.onRemoved. Required ones, and ones it was not granted, are left alone.
+    void revoke_granted_permissions(String const& extension_id, ExtensionPermissions const&);
 
     // Forgets what the host keeps of an extension that was turned off or removed. What it stored stays on disk.
     void extension_did_unload(String const& extension_id);

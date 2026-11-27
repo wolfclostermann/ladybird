@@ -388,6 +388,42 @@ ExtensionPermissions optional_permissions_of(LoadedExtension const& extension)
     return permissions_in(extension, "optional_permissions"sv, "optional_host_permissions"sv);
 }
 
+// What the user is told an extension asks for, much as Chromium words its warnings.
+// https://developer.chrome.com/docs/extensions/reference/permissions-list
+String describe_extension_permission(StringView permission)
+{
+    if (permission == "history"sv)
+        return "Read and change your browsing history"_string;
+    if (permission == "bookmarks"sv)
+        return "Read and change your bookmarks"_string;
+    if (permission == "tabs"sv)
+        return "Read your browsing history"_string;
+    if (permission == "sessions"sv)
+        return "Read your recently closed tabs"_string;
+    if (permission == "webNavigation"sv)
+        return "Read your browsing history"_string;
+    if (permission == "notifications"sv)
+        return "Display notifications"_string;
+    if (permission == "clipboardRead"sv)
+        return "Read data you copy and paste"_string;
+    if (permission == "clipboardWrite"sv)
+        return "Modify data you copy and paste"_string;
+    return MUST(String::formatted("Use \"{}\"", permission));
+}
+
+String describe_extension_origin(StringView origin)
+{
+    if (origin == "<all_urls>"sv || origin == "*://*/*"sv || origin == "http://*/*"sv || origin == "https://*/*"sv)
+        return "Read and change all your data on all websites"_string;
+    auto host = origin;
+    if (auto separator = host.find("://"sv); separator.has_value())
+        host = host.substring_view(*separator + 3);
+    host = host.substring_view(0, host.find('/').value_or(host.length()));
+    if (host.starts_with("*."sv))
+        return MUST(String::formatted("Read and change your data on all {} sites", host.substring_view(2)));
+    return MUST(String::formatted("Read and change your data on {}", host));
+}
+
 bool extension_has_host_access(LoadedExtension const& extension, URL::URL const& url, HostAccess access)
 {
     if (url.scheme() == "chrome-extension"sv && url.serialized_host() == extension.id)

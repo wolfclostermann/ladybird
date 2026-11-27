@@ -135,6 +135,34 @@
                 font-family: monospace;
             }
 
+            .granted-permissions {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+
+                margin: 0;
+                padding: 0;
+                list-style: none;
+            }
+
+            .granted-permission {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 0 12px;
+                align-items: center;
+            }
+
+            .granted-permission-value {
+                grid-column: 1;
+                color: var(--secondary-text-color);
+                font-family: monospace;
+            }
+
+            .granted-permission button {
+                grid-row: 1 / span 2;
+                grid-column: 2;
+            }
+
             .load-error {
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) auto;
@@ -382,9 +410,41 @@
                 add("Permissions", extension.permissions.join(", "), "monospace");
                 add("Site access", extension.hostPermissions.join(", "), "monospace");
                 add("Runs on", extension.contentScriptMatches.join(", "), "monospace");
+                if (extension.grantedPermissions.length > 0) {
+                    const granted = element("dd");
+                    granted.append(renderGrantedPermissions(extension));
+                    list.append(element("dt", null, "Granted by you"), granted);
+                }
 
                 details.append(list);
                 return details;
+            }
+
+            // The optional permissions the user granted when the extension asked, each of which they may take back.
+            function renderGrantedPermissions(extension) {
+                const items = element("ul", "granted-permissions");
+                for (const granted of extension.grantedPermissions) {
+                    const item = element("li", "granted-permission");
+                    const revoke = element("button", "secondary-button", "Remove");
+                    revoke.title = "Take back this permission";
+                    revoke.setAttribute("aria-label", `Remove the permission to ${granted.description.toLowerCase()}`);
+                    revoke.addEventListener("click", () => {
+                        // The list is drawn again once the browser has taken the permission back.
+                        revoke.disabled = true;
+                        sendAction("revokeExtensionPermission", {
+                            id: extension.id,
+                            kind: granted.kind,
+                            value: granted.value,
+                        });
+                    });
+                    item.append(
+                        element("span", null, granted.description),
+                        revoke,
+                        element("span", "granted-permission-value", granted.value)
+                    );
+                    items.append(item);
+                }
+                return items;
             }
 
             function renderExtension(extension) {

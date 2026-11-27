@@ -145,5 +145,29 @@ finally:
 check("saved grants after removing", json.load(open(state_file())).get("granted", {}).get(extension_id),
       {"permissions": [], "origins": ["https://www.example.org/*"]})
 
+# The user takes the remaining grant back on about:extensions.
+session = Session()
+try:
+    background = req("GET", f"/session/{session.sid}/window")
+    req("POST", f"/session/{session.sid}/window/new", {"type": "tab"})
+    page = [handle for handle in req("GET", f"/session/{session.sid}/window/handles") if handle != background][-1]
+    req("POST", f"/session/{session.sid}/window", {"handle": page})
+    req("POST", f"/session/{session.sid}/url", {"url": "about:extensions"})
+    time.sleep(1)
+    granted_text = "return [...document.querySelectorAll('.granted-permission')].map(item => [...item.children].map(child => child.textContent))"
+    check("about:extensions lists the grant", session.run(granted_text),
+          [["Read and change your data on www.example.org", "Remove", "https://www.example.org/*"]])
+    session.run("document.querySelector('.granted-permission button').click()")
+    time.sleep(1)
+    check("about:extensions drops the grant once removed", session.run(granted_text), [])
+    req("POST", f"/session/{session.sid}/window", {"handle": background})
+    check("onRemoved after removing on about:extensions", session.run("return self.log"),
+          [{"removed": {"permissions": [], "origins": ["https://www.example.org/*"]}}])
+    check("contains after removing on about:extensions",
+          session.run_async("chrome.permissions.contains({origins: ['https://www.example.org/*']})"), {"ok": False})
+finally:
+    session.close()
+check("saved grants after removing on about:extensions", json.load(open(state_file())).get("granted", {}).get(extension_id), None)
+
 print("FAILED: " + ", ".join(failures) if failures else "ALL PASSED")
 sys.exit(1 if failures else 0)

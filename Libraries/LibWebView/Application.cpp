@@ -966,6 +966,7 @@ void Application::set_extension_granted_permissions(StringView id, ExtensionPerm
     else
         m_granted_extension_permissions.set(key, move(granted));
     save_extensions_state();
+    ExtensionsUI::extensions_did_change();
 }
 
 NonnullRefPtr<Core::Promise<bool>> Application::ask_user_to_grant_extension_permissions(String const&, Vector<String> const&) const

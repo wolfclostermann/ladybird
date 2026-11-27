@@ -34,6 +34,8 @@ private:
     // Asks the user for an unpacked extension's folder, or a packed extension's file, and installs it.
     void install_extension(bool package);
     void forget_extension_folder(JsonValue const&);
+    // Takes back an optional permission or host permission the user granted an extension.
+    void revoke_extension_permission(JsonValue const&);
     void report_failure(StringView action, String const& extension_id, Error const&);
 };
 

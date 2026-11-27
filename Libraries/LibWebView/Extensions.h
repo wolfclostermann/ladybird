@@ -101,6 +101,9 @@ struct ExtensionPermissions {
 WEBVIEW_API ExtensionPermissions required_permissions_of(LoadedExtension const&);
 // What it may ask the user for later, with permissions.request.
 WEBVIEW_API ExtensionPermissions optional_permissions_of(LoadedExtension const&);
+// What the user is told a permission or host permission gives an extension, much as Chromium words its warnings.
+WEBVIEW_API String describe_extension_permission(StringView permission);
+WEBVIEW_API String describe_extension_origin(StringView origin);
 
 // Whether a held match pattern covers one an extension asks about: the same pattern, one for every URL, or one that
 // matches every URL the other pattern names.

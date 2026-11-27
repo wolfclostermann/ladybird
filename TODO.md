@@ -69,4 +69,4 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
   - [x] no tests showed that extension file paths can't leave the extension's directory (they found an escape from
         the web-accessible files, now fixed);
   - [x] `activeTab` (granted by clicking the toolbar button) and optional permissions (`permissions.request`, with a
-        prompt) are supported. about:extensions doesn't show or revoke granted permissions yet.
+        prompt) are supported. about:extensions lists granted optional permissions and can take them back.

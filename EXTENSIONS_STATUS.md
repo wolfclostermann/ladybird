@@ -222,8 +222,9 @@ extension's privileges. The three high-severity items below are fixed, and the f
    in `extensions.json` under `"granted"` until `permissions.remove` or removing the extension. `contains`/`getAll`
    count them, `onAdded`/`onRemoved` fire. Without a UI (WebDriver) requests are declined. A requested host may be
    narrower than the declared optional one (`https://www.example.org/*` under `https://*.example.org/*`), see
-   `match_pattern_covers`. Not yet: the per-site "allow access to file URLs" switch Chromium has, and showing or
-   revoking granted permissions on about:extensions.
+   `match_pattern_covers`. about:extensions lists the granted ones under an extension's Details ("Granted by you"),
+   each with a Remove button that takes it back as `permissions.remove` would (`onRemoved` fires). Not yet: the
+   per-site "allow access to file URLs" switch Chromium has.
 
 ### Medium
 

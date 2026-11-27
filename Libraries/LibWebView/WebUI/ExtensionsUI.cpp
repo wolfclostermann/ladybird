@@ -8,6 +8,7 @@
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/WebContentClient.h>
 #include <LibWebView/WebContentPage.h>
@@ -67,6 +68,9 @@ void ExtensionsUI::register_interfaces()
     });
     register_interface("forgetExtensionFolder"sv, [this](auto const& data) {
         forget_extension_folder(data);
+    });
+    register_interface("revokeExtensionPermission"sv, [this](auto const& data) {
+        revoke_extension_permission(data);
     });
 }
 
@@ -133,6 +137,21 @@ static JsonObject serialize_extension(LoadedExtension const& extension, bool ena
     });
     serialized.set("permissions"sv, move(permissions));
     serialized.set("hostPermissions"sv, move(host_permissions));
+
+    // What the user granted it since, which they may take back.
+    JsonArray granted;
+    auto add_granted = [&](StringView kind, String const& value, String description) {
+        JsonObject item;
+        item.set("kind"sv, kind);
+        item.set("value"sv, value);
+        item.set("description"sv, move(description));
+        granted.must_append(move(item));
+    };
+    for (auto const& origin : extension.granted_origins)
+        add_granted("origin"sv, origin, describe_extension_origin(origin));
+    for (auto const& permission : extension.granted_permissions)
+        add_granted("permission"sv, permission, describe_extension_permission(permission));
+    serialized.set("grantedPermissions"sv, move(granted));
 
     Vector<String> content_script_matches;
     extension.content_scripts.for_each([&](JsonValue const& content_script) {
@@ -271,6 +290,31 @@ void ExtensionsUI::forget_extension_folder(JsonValue const& data)
         return;
 
     Application::the().forget_extension_folder(data.as_string());
+    load_extensions();
+}
+
+void ExtensionsUI::revoke_extension_permission(JsonValue const& data)
+{
+    if (!data.is_object())
+        return;
+    auto const& object = data.as_object();
+    auto id = object.get_string("id"sv);
+    auto kind = object.get_string("kind"sv);
+    auto value = object.get_string("value"sv);
+    if (!id.has_value() || !kind.has_value() || !value.has_value())
+        return;
+
+    ExtensionPermissions revoked;
+    if (*kind == "permission"sv)
+        revoked.permissions.append(*value);
+    else if (*kind == "origin"sv)
+        revoked.origins.append(*value);
+    else
+        return;
+
+    // NB: Every open page is drawn again when the grants change. This one is also drawn when nothing did, such as when
+    //     the extension had already given the permission up.
+    Application::the().extension_host().revoke_granted_permissions(*id, revoked);
     load_extensions();
 }
 
