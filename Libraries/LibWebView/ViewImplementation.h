@@ -1019,6 +1019,8 @@ protected:
         bool is_initiated_by_page { false };
     };
     Optional<BrowserUILoad> m_browser_ui_load;
+    // A load WebDriver's Navigate To started, which the browser started as surely as one from its UI.
+    Optional<BrowserUILoad> m_webdriver_load;
     URL::URL m_displayed_url { URL::about_blank() };
     bool m_text_fragment_indication_is_visible { false };
     Utf16String m_title;

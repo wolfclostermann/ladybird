@@ -384,9 +384,16 @@ Optional<URL::URL const&> ViewImplementation::browser_ui_load_url() const
 
 Optional<URL::URL const&> ViewImplementation::load_started_by_browser_url() const
 {
-    if (!m_browser_ui_load.has_value() || m_browser_ui_load->is_initiated_by_page)
+    if (!m_top_level_traversable)
         return {};
-    return browser_ui_load_url();
+    auto ongoing_navigation_id = m_top_level_traversable->ongoing_navigation_id();
+    if (!ongoing_navigation_id.has_value())
+        return {};
+    for (auto const* load : { &m_browser_ui_load, &m_webdriver_load }) {
+        if (load->has_value() && !(*load)->is_initiated_by_page && (*load)->navigation_id == *ongoing_navigation_id)
+            return (*load)->url;
+    }
+    return {};
 }
 
 void ViewImplementation::did_change_ongoing_navigation(Badge<CanonicalNavigable>)
@@ -4610,6 +4617,7 @@ void ViewImplementation::load_for_webdriver_navigation(URL::URL const& url)
 {
     auto navigation = traversable().prepare_navigation(url);
     prepare_for_navigation_after_crash(NavigationToRetry { url, prepare_navigation_to_retry(navigation), UserSelectedLocalFile {} });
+    m_webdriver_load = BrowserUILoad { navigation.navigation_id, navigation.url, false };
     traversable().begin_navigation(move(navigation), {}, UserSelectedLocalFile {});
 }
 
