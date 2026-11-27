@@ -39,6 +39,10 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       changed in a report fires `onDetached` then `onAttached`.
 - [x] `sessions.getRecentlyClosed`, `sessions.restore` by session ID, `sessions.onChanged`. A closed window lists only
       the tab that was active in it, and `restore` resolves with the session as it was listed (no new tab IDs).
+- [x] `history.onVisited` and `history.onVisitRemoved`. Vimium reads the history once and then follows these, so
+      without them pages visited since it started never reached the Vomnibar (`o`) and removed ones stayed there.
+- [ ] `windows.create`, for `W` (move tab to a new window); part of the multi-window work above.
+- [ ] `notifications.create`, which Vimium uses only to announce a major upgrade.
 
 ## Next phase: UI
 

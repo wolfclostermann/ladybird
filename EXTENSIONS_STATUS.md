@@ -52,6 +52,7 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `d8e58ab9470`, `218fc55c0e2`, `d4770d432f7` | WebDriver's Navigate To opens an extension's pages; `Tests/LibWebView/test-webdriver-extensions.py` (CTest) checks content scripts, extension pages, messaging, reload, remove and state across a restart. |
 | `fb940498c5e` | An unpinned extension's toolbar button shows while its popup is open, and the popup hangs from it (Chromium). |
 | `cac7f68559b` | An Extensions item in the Ladybird and File menus, and an Extensions tab in `about:settings` with a switch that keeps the puzzle-piece button while no extensions are loaded. |
+| `6c4d206e759` | `history.onVisited` and `history.onVisitRemoved`, so pages visited since Vimium started reach the Vomnibar and removed ones leave it. |
 
 ### Where the code lives
 
@@ -115,6 +116,9 @@ All fixed. `TODO.md` is the live checklist.
 ### APIs still missing
 
 - Writing bookmarks, `notifications`, `alarms`, `contextMenus`.
+- Changing the history (`history.addUrl`, `deleteUrl`, `deleteRange`, `deleteAll`) and `history.getVisits`. Its events
+  work.
+- `windows.create`, which Vimium's `W` needs.
 - `commands` (keyboard shortcuts for extensions): `chrome.commands` exists but nothing fires; no shortcuts page.
 - `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Not started.
 - Manifest V3 service workers. Background pages are run as MV2-style pages; MV3 extensions that rely on a service
