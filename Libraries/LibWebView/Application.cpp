@@ -969,6 +969,39 @@ void Application::set_extension_granted_permissions(StringView id, ExtensionPerm
     ExtensionsUI::extensions_did_change();
 }
 
+Vector<AssignedExtensionShortcut> Application::assigned_extension_shortcuts() const
+{
+    return assign_extension_shortcuts(m_extensions, m_extension_shortcut_choices, current_shortcut_platform());
+}
+
+Optional<String> Application::set_extension_shortcut(StringView id, StringView command, Optional<ExtensionShortcut> shortcut)
+{
+    auto const* extension = extension_with_id(id);
+    if (!extension)
+        return "No such extension"_string;
+    auto platform = current_shortcut_platform();
+    if (!any_of(commands_of(*extension, platform), [&](auto const& declared) { return declared.name == command; }))
+        return "The extension has no such command"_string;
+
+    if (shortcut.has_value()) {
+        if (!is_valid_extension_shortcut(*shortcut, platform))
+            return "Extensions may not use that shortcut"_string;
+        for (auto const& assigned : assigned_extension_shortcuts()) {
+            if (assigned.shortcut != *shortcut || (assigned.extension_id == id && assigned.command == command))
+                continue;
+            // NB: Like Chromium, which asks the user to choose another shortcut rather than take this one away.
+            auto const* other = extension_with_id(assigned.extension_id);
+            return MUST(String::formatted("{} is used by {}", display_shortcut_text(*shortcut, platform), other ? other->name : assigned.extension_id));
+        }
+    }
+
+    auto key = MUST(String::from_utf8(id));
+    m_extension_shortcut_choices.ensure(key).set(MUST(String::from_utf8(command)), shortcut.has_value() ? stored_shortcut_text(*shortcut) : String {});
+    save_extensions_state();
+    ExtensionsUI::extensions_did_change();
+    return {};
+}
+
 NonnullRefPtr<Core::Promise<bool>> Application::ask_user_to_grant_extension_permissions(String const&, Vector<String> const&) const
 {
     return Core::Promise<bool>::resolved(false);
@@ -985,6 +1018,7 @@ void Application::load_extensions()
     m_installed_extension_paths.clear();
     m_pinned_extension_ids.clear();
     m_granted_extension_permissions.clear();
+    m_extension_shortcut_choices.clear();
     if (auto state = read_json_file(extensions_state_path()); !state.is_error()) {
         if (auto disabled = state.value().get_array("disabled"sv); disabled.has_value()) {
             disabled->for_each([&](JsonValue const& id) {
@@ -1016,6 +1050,17 @@ void Application::load_extensions()
                 read("permissions"sv, permissions.permissions);
                 read("origins"sv, permissions.origins);
                 m_granted_extension_permissions.set(id, move(permissions));
+            });
+        }
+        if (auto shortcuts = state.value().get_object("shortcuts"sv); shortcuts.has_value()) {
+            shortcuts->for_each_member([&](String const& id, JsonValue const& commands) {
+                if (!commands.is_object())
+                    return;
+                auto& chosen = m_extension_shortcut_choices.ensure(id);
+                commands.as_object().for_each_member([&](String const& command, JsonValue const& shortcut) {
+                    if (shortcut.is_string())
+                        chosen.set(command, shortcut.as_string());
+                });
             });
         }
     }
@@ -1086,11 +1131,25 @@ void Application::save_extensions_state()
         granted.set(id, move(object));
     }
 
+    JsonObject shortcuts;
+    auto shortcut_ids = m_extension_shortcut_choices.keys();
+    quick_sort(shortcut_ids);
+    for (auto const& id : shortcut_ids) {
+        auto const& chosen = m_extension_shortcut_choices.get(id).value();
+        auto commands = chosen.keys();
+        quick_sort(commands);
+        JsonObject object;
+        for (auto const& command : commands)
+            object.set(command, chosen.get(command).value());
+        shortcuts.set(id, move(object));
+    }
+
     JsonObject state;
     state.set("disabled"sv, move(disabled));
     state.set("unpacked"sv, move(unpacked));
     state.set("pinned"sv, move(pinned));
     state.set("granted"sv, move(granted));
+    state.set("shortcuts"sv, move(shortcuts));
     if (auto result = write_json_file(extensions_state_path(), state); result.is_error())
         warnln("Unable to save the state of extensions: {}", result.error());
 }
@@ -1215,6 +1274,7 @@ ErrorOr<void> Application::remove_extension(StringView id)
     m_pinned_extension_ids.remove_all_matching([&](String const& pinned_id) { return pinned_id == removed->id; });
     // Like Chromium, a removed extension's optional permissions are no longer granted if it is installed again.
     m_granted_extension_permissions.remove(removed->id);
+    m_extension_shortcut_choices.remove(removed->id);
     save_extensions_state();
 
     // A packed extension's unpacked files go too, as nothing else would ever load them.

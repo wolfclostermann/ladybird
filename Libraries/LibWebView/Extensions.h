@@ -9,6 +9,7 @@
 #include <AK/ByteBuffer.h>
 #include <AK/ByteString.h>
 #include <AK/Error.h>
+#include <AK/HashMap.h>
 #include <AK/HashTable.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
@@ -17,6 +18,7 @@
 #include <AK/Vector.h>
 #include <LibIPC/File.h>
 #include <LibURL/Forward.h>
+#include <LibWebCommon/UIEvents/KeyCode.h>
 #include <LibWebView/Export.h>
 
 // WebExtensions, loaded from directories that hold them unpacked: https://developer.chrome.com/docs/extensions
@@ -138,6 +140,63 @@ WEBVIEW_API String serialize_extensions_for_web_content(Vector<LoadedExtension> 
 
 // JSON with the comments that Chromium accepts in a manifest taken out.
 WEBVIEW_API String strip_json_comments(StringView);
+
+// Keyboard shortcuts for the commands of extensions: https://developer.chrome.com/docs/extensions/reference/api/commands
+// Manifests suggest different keys for different platforms, and some modifiers mean different keys on macOS.
+enum class ShortcutPlatform : u8 {
+    MacOS,
+    Windows,
+    Linux,
+};
+WEBVIEW_API ShortcutPlatform current_shortcut_platform();
+
+struct ExtensionShortcut {
+    Web::UIEvents::KeyCode key { Web::UIEvents::KeyCode::Key_Invalid };
+    // The keys held with it, of Mod_Ctrl, Mod_Alt, Mod_Shift and Mod_Super (Command, on macOS), as key events name them.
+    Web::UIEvents::KeyModifier modifiers { Web::UIEvents::KeyModifier::Mod_None };
+
+    bool operator==(ExtensionShortcut const&) const = default;
+};
+
+// Whether an extension may use a shortcut on a platform. Like Chromium, a shortcut is a letter, a digit, or one of a few
+// other keys, held with Ctrl or Alt (or Command or Control, on macOS), and perhaps with Shift. Ctrl+Alt is not allowed
+// outside macOS, where it types characters on some keyboards.
+WEBVIEW_API bool is_valid_extension_shortcut(ExtensionShortcut, ShortcutPlatform);
+// A shortcut as a manifest's suggested_key writes it, such as "Ctrl+Shift+Y". On macOS, "Ctrl" and "Command" mean the
+// Command key, and "MacCtrl" the Control key.
+WEBVIEW_API Optional<ExtensionShortcut> parse_manifest_shortcut(StringView, ShortcutPlatform);
+// A shortcut the user chose, as the profile keeps it, naming the keys held: "Ctrl", "Alt", "Shift" and "Command".
+WEBVIEW_API Optional<ExtensionShortcut> parse_stored_shortcut(StringView, ShortcutPlatform);
+WEBVIEW_API String stored_shortcut_text(ExtensionShortcut);
+// A shortcut as the user reads it, as Chromium shows it: "⌥⇧Y" on macOS, "Alt+Shift+Y" elsewhere.
+WEBVIEW_API String display_shortcut_text(ExtensionShortcut, ShortcutPlatform);
+
+// The commands that act as a click on the extension's toolbar button, in Manifest V3 and in Manifest V2.
+WEBVIEW_API bool is_execute_action_command(StringView name);
+
+struct ExtensionCommand {
+    String name;
+    String description;
+    // The shortcut the manifest suggests on this platform, if it suggests one Ladybird can use. As in Chromium, an
+    // extension may suggest no more than four.
+    Optional<ExtensionShortcut> suggested_shortcut;
+};
+// The commands an extension's manifest declares. An extension with a toolbar button also has the command that clicks
+// it, as in Chromium, which lets the user give it a shortcut.
+WEBVIEW_API Vector<ExtensionCommand> commands_of(LoadedExtension const&, ShortcutPlatform);
+
+// The shortcuts the user chose, by extension ID and then by command name, as stored_shortcut_text gives them. An empty
+// one means the user took the command's shortcut away.
+using ExtensionShortcutChoices = HashMap<String, HashMap<String, String>>;
+
+struct AssignedExtensionShortcut {
+    String extension_id;
+    String command;
+    ExtensionShortcut shortcut;
+};
+// The shortcuts that run the commands of the extensions: the ones the user chose, then the ones the manifests suggest
+// that no other command has, in the order the extensions come.
+WEBVIEW_API Vector<AssignedExtensionShortcut> assign_extension_shortcuts(ReadonlySpan<LoadedExtension>, ExtensionShortcutChoices const&, ShortcutPlatform);
 
 struct TabMove {
     u64 view_id { 0 };

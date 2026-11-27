@@ -267,6 +267,79 @@
                 color: var(--secondary-text-color);
             }
 
+            .shortcuts-extension {
+                padding: 16px 20px;
+            }
+
+            .shortcuts-extension + .shortcuts-extension {
+                border-top: 1px solid var(--border-color);
+            }
+
+            .shortcuts-extension-name {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+
+                margin-bottom: 8px;
+                font-size: 15px;
+                font-weight: 600;
+                overflow-wrap: anywhere;
+            }
+
+            .shortcuts-extension-name .extension-icon {
+                width: 24px;
+                height: 24px;
+                font-size: 13px;
+                border-radius: 6px;
+            }
+
+            .shortcut-row {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 180px 28px;
+                gap: 4px 12px;
+                align-items: center;
+
+                padding: 4px 0;
+            }
+
+            .shortcut-description {
+                overflow-wrap: anywhere;
+            }
+
+            button.shortcut-field {
+                min-width: 0;
+                font-variant-numeric: tabular-nums;
+            }
+
+            button.shortcut-field.unset {
+                color: var(--secondary-text-color);
+            }
+
+            button.shortcut-field.recording {
+                outline: 2px solid var(--accent, Highlight);
+            }
+
+            button.shortcut-clear {
+                padding: 0;
+                width: 28px;
+            }
+
+            .shortcut-failure {
+                grid-column: 1 / span 3;
+                color: var(--error);
+                overflow-wrap: anywhere;
+            }
+
+            #shortcuts-note {
+                padding: 0 4px 12px 4px;
+                color: var(--secondary-text-color);
+            }
+
+            #shortcuts-empty {
+                padding: 20px;
+                color: var(--secondary-text-color);
+            }
+
             @media (max-width: 640px) {
                 body {
                     padding: 24px 16px;
@@ -298,22 +371,39 @@
     </head>
     <body>
         <header class="page-header">
-            <h1>Extensions</h1>
-            <div class="header-actions">
+            <h1 id="page-title">Extensions</h1>
+            <div class="header-actions" id="list-actions">
+                <button id="show-shortcuts" class="secondary-button">Keyboard Shortcuts</button>
                 <button id="install-package" class="secondary-button">Install from File…</button>
                 <button id="load-unpacked" class="primary-button">Load Unpacked…</button>
             </div>
+            <div class="header-actions hidden" id="shortcuts-actions">
+                <button id="show-list" class="secondary-button">Back to Extensions</button>
+            </div>
         </header>
 
-        <div id="install-failure" class="card hidden"></div>
+        <div id="shortcuts-view" class="hidden">
+            <p id="shortcuts-note">
+                Click a shortcut, then press the keys for it. Ladybird's own shortcuts can't be used, and in a tab an
+                extension's shortcut goes to the extension rather than the page.
+            </p>
+            <div class="card">
+                <div id="shortcuts"></div>
+                <div id="shortcuts-empty" class="hidden">No extension that is turned on has commands.</div>
+            </div>
+        </div>
 
-        <div id="errors-card" class="card hidden"></div>
+        <div id="list-view">
+            <div id="install-failure" class="card hidden"></div>
 
-        <div class="card">
-            <div id="extensions"></div>
-            <div id="empty" class="hidden">
-                No extensions are installed. Choose Load Unpacked… to install an extension from its folder, or Install
-                from File… to install a packed extension (a .crx or .zip file).
+            <div id="errors-card" class="card hidden"></div>
+
+            <div class="card">
+                <div id="extensions"></div>
+                <div id="empty" class="hidden">
+                    No extensions are installed. Choose Load Unpacked… to install an extension from its folder, or
+                    Install from File… to install a packed extension (a .crx or .zip file).
+                </div>
             </div>
         </div>
 
@@ -341,6 +431,24 @@
             const errorsCard = document.querySelector("#errors-card");
             const removeDialog = document.querySelector("#remove-dialog");
             const installFailure = document.querySelector("#install-failure");
+
+            const shortcutsElement = document.querySelector("#shortcuts");
+            const shortcutsEmpty = document.querySelector("#shortcuts-empty");
+
+            // The list of shortcuts is its own view, at #shortcuts, like Chromium's chrome://extensions/shortcuts.
+            function showView() {
+                const shortcuts = location.hash === "#shortcuts";
+                document.querySelector("#list-view").classList.toggle("hidden", shortcuts);
+                document.querySelector("#list-actions").classList.toggle("hidden", shortcuts);
+                document.querySelector("#shortcuts-view").classList.toggle("hidden", !shortcuts);
+                document.querySelector("#shortcuts-actions").classList.toggle("hidden", !shortcuts);
+                document.querySelector("#page-title").textContent = shortcuts ? "Keyboard Shortcuts" : "Extensions";
+                document.title = shortcuts ? "Extension Shortcuts" : "Extensions";
+            }
+            window.addEventListener("hashchange", showView);
+            showView();
+            document.querySelector("#show-shortcuts").addEventListener("click", () => (location.hash = "shortcuts"));
+            document.querySelector("#show-list").addEventListener("click", () => (location.hash = ""));
 
             document.querySelector("#load-unpacked").addEventListener("click", () => {
                 installFailure.classList.add("hidden");
@@ -501,6 +609,99 @@
                 return row;
             }
 
+            // The keys a shortcut may use, by KeyboardEvent.code, with the names the browser gives them.
+            function shortcutKeyName(code) {
+                let match = /^Key([A-Z])$/.exec(code) ?? /^Digit([0-9])$/.exec(code);
+                if (match) return match[1];
+                match = /^Arrow(Up|Down|Left|Right)$/.exec(code);
+                if (match) return match[1];
+                const named = ["Comma", "Period", "Home", "End", "PageUp", "PageDown", "Space", "Insert", "Delete"];
+                return named.includes(code) ? code : null;
+            }
+
+            const modifierKeys = ["Control", "Alt", "Shift", "Meta", "AltGraph", "CapsLock", "Fn"];
+
+            // What went wrong when the user last chose a shortcut, shown under the command until they choose another.
+            let shortcutFailure = null;
+
+            function setShortcut(extension, command, shortcut) {
+                shortcutFailure = null;
+                ladybird.sendMessage("setExtensionShortcut", { id: extension.id, command: command.name, shortcut });
+            }
+
+            function renderShortcutRow(extension, command) {
+                const row = element("div", "shortcut-row");
+                row.dataset.command = command.name;
+
+                const field = element("button", "secondary-button shortcut-field");
+                const showShortcut = () => {
+                    field.textContent = command.shortcut ?? "Not set";
+                    field.classList.toggle("unset", !command.shortcut);
+                    field.classList.remove("recording");
+                };
+                showShortcut();
+                field.setAttribute("aria-label", `Shortcut to ${command.description}`);
+                field.addEventListener("click", () => {
+                    field.textContent = "Press the keys…";
+                    field.classList.remove("unset");
+                    field.classList.add("recording");
+                });
+                field.addEventListener("blur", showShortcut);
+                field.addEventListener("keydown", event => {
+                    if (!field.classList.contains("recording")) return;
+                    // Tab still moves the focus on, which stops the recording.
+                    if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.key === "Escape" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                        showShortcut();
+                        return;
+                    }
+                    if (modifierKeys.includes(event.key)) return;
+
+                    const key = shortcutKeyName(event.code);
+                    const parts = [];
+                    if (event.ctrlKey) parts.push("Ctrl");
+                    if (event.altKey) parts.push("Alt");
+                    if (event.shiftKey) parts.push("Shift");
+                    if (event.metaKey) parts.push("Command");
+                    // The browser says what is wrong with a shortcut it refuses.
+                    parts.push(key ?? event.code);
+                    field.classList.remove("recording");
+                    field.textContent = "…";
+                    setShortcut(extension, command, parts.join("+"));
+                });
+
+                const clear = element("button", "secondary-button shortcut-clear", "×");
+                clear.title = "Remove the shortcut";
+                clear.setAttribute("aria-label", `Remove the shortcut to ${command.description}`);
+                clear.hidden = !command.shortcut;
+                clear.addEventListener("click", () => setShortcut(extension, command, null));
+
+                row.append(element("div", "shortcut-description", command.description), field, clear);
+                if (shortcutFailure && shortcutFailure.id === extension.id && shortcutFailure.command === command.name)
+                    row.append(element("div", "shortcut-failure", shortcutFailure.error));
+                return row;
+            }
+
+            function renderShortcuts(extensions) {
+                const withCommands = extensions.filter(extension => extension.enabled && extension.commands.length > 0);
+                shortcutsElement.replaceChildren(
+                    ...withCommands.map(extension => {
+                        const section = element("div", "shortcuts-extension");
+                        section.dataset.id = extension.id;
+                        const name = element("div", "shortcuts-extension-name");
+                        name.append(renderIcon(extension), element("span", null, extension.name));
+                        section.append(
+                            name,
+                            ...extension.commands.map(command => renderShortcutRow(extension, command))
+                        );
+                        return section;
+                    })
+                );
+                shortcutsEmpty.classList.toggle("hidden", withCommands.length > 0);
+            }
+
             function renderError(error) {
                 const row = element("div", "load-error");
                 const buttons = element("div", "load-error-actions");
@@ -534,6 +735,10 @@
                     failure = event.detail.data;
                     return;
                 }
+                if (event.detail.name === "shortcutFailed") {
+                    shortcutFailure = event.detail.data;
+                    return;
+                }
                 if (event.detail.name !== "loadExtensions") return;
 
                 const { extensions, errors } = event.detail.data;
@@ -550,6 +755,8 @@
                 for (const row of rows) if (openDetails.has(row.dataset.id)) row.querySelector("details").open = true;
                 extensionsElement.replaceChildren(...rows);
                 emptyElement.classList.toggle("hidden", extensions.length > 0);
+
+                renderShortcuts(sorted);
 
                 errorsCard.replaceChildren(...errors.map(renderError));
                 errorsCard.classList.toggle("hidden", errors.length === 0);

@@ -18,6 +18,7 @@
 #include <LibDatabase/Forward.h>
 #include <LibURL/Forward.h>
 #include <LibURL/Origin.h>
+#include <LibWebCommon/Forward.h>
 #include <LibWebView/Export.h>
 #include <LibWebView/Forward.h>
 
@@ -90,6 +91,11 @@ public:
     // extension is told of the click.
     // https://developer.chrome.com/docs/extensions/reference/api/action#event-onClicked
     void action_clicked(String const& extension_id, u64 view_id);
+
+    // Runs the command of an extension whose shortcut the user pressed in a tab, before the page sees the key, as
+    // Chromium does. Returns whether the key was taken for a command.
+    // https://developer.chrome.com/docs/extensions/reference/api/commands
+    bool handle_key_event_for_commands(ViewImplementation&, Web::KeyEvent const&);
 
     // Whether the activeTab permission lets an extension at a URL shown in a tab: the user invoked the extension on the
     // tab, which still shows a page of the origin it showed then.
@@ -170,6 +176,8 @@ private:
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
     void permissions_call(LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
     CallResult open_action_popup(LoadedExtension const&, JsonValue const& options);
+    CallResult commands_get_all(LoadedExtension const&);
+    void run_command(LoadedExtension const&, StringView command, ViewImplementation&, size_t tab_index);
     HistoryStore* history_store();
 
     void inject(ViewImplementation&, LoadedExtension const&, JsonObject const& target, JsonObject const& details, Function<void(JsonArray)> on_complete);
@@ -240,6 +248,7 @@ private:
     HashMap<String, ExtensionStorage> m_storage;
 
     NonnullOwnPtr<ExtensionActions> m_actions;
+
 
     // NB: The UI keeps the history, in a database this reads too.
     RefPtr<Database::Database> m_history_database;

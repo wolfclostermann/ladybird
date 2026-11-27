@@ -1410,6 +1410,10 @@ void ViewImplementation::enqueue_input_event(Web::InputEvent event)
     if (m_has_picture_in_picture_controls && mouse_event && !mouse_event->pointer_data.ptr() && handle_picture_in_picture_controls_mouse_event(*mouse_event))
         return;
 
+    // The shortcut of an extension's command runs the command, and the page never sees the key.
+    if (key_event && Application::the().extension_host().handle_key_event_for_commands(*this, *key_event))
+        return;
+
     // User input enables a single request for an external URL.
     if ((key_event && key_event->type == Web::KeyEvent::Type::KeyDown && !key_event->repeat
             && first_is_one_of(key_event->key, Web::UIEvents::KeyCode::Key_Return, Web::UIEvents::KeyCode::Key_Space))

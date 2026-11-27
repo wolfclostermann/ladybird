@@ -72,6 +72,9 @@ void ExtensionsUI::register_interfaces()
     register_interface("revokeExtensionPermission"sv, [this](auto const& data) {
         revoke_extension_permission(data);
     });
+    register_interface("setExtensionShortcut"sv, [this](auto const& data) {
+        set_extension_shortcut(data);
+    });
 }
 
 static JsonArray strings_of(JsonObject const& object, StringView key)
@@ -109,7 +112,29 @@ static Optional<String> icon_data_url(LoadedExtension const& extension)
     return MUST(String::formatted("data:{};base64,{}", type, encoded.value()));
 }
 
-static JsonObject serialize_extension(LoadedExtension const& extension, bool enabled)
+// The commands of an extension, with the shortcuts that run them, for the page's list of shortcuts.
+static JsonArray serialize_commands(LoadedExtension const& extension, Vector<AssignedExtensionShortcut> const& assigned)
+{
+    auto platform = current_shortcut_platform();
+    JsonArray commands;
+    for (auto const& command : commands_of(extension, platform)) {
+        JsonObject serialized;
+        serialized.set("name"sv, command.name);
+        // Like Chromium, which names the command that clicks the toolbar button for the user.
+        if (command.description.is_empty() && is_execute_action_command(command.name))
+            serialized.set("description"sv, "Activate the extension"sv);
+        else
+            serialized.set("description"sv, command.description.is_empty() ? command.name : command.description);
+        for (auto const& assignment : assigned) {
+            if (assignment.extension_id == extension.id && assignment.command == command.name)
+                serialized.set("shortcut"sv, display_shortcut_text(assignment.shortcut, platform));
+        }
+        commands.must_append(move(serialized));
+    }
+    return commands;
+}
+
+static JsonObject serialize_extension(LoadedExtension const& extension, bool enabled, Vector<AssignedExtensionShortcut> const& assigned)
 {
     auto const& manifest = extension.manifest;
 
@@ -175,6 +200,7 @@ static JsonObject serialize_extension(LoadedExtension const& extension, bool ena
     }
 
     serialized.set("hasOptionsPage"sv, options_page_path(extension).has_value());
+    serialized.set("commands"sv, serialize_commands(extension, assigned));
     return serialized;
 }
 
@@ -182,11 +208,13 @@ void ExtensionsUI::load_extensions()
 {
     auto const& application = Application::the();
 
+    // NB: Turned-off extensions have no shortcuts.
+    auto assigned = application.assigned_extension_shortcuts();
     JsonArray extensions;
     for (auto const& extension : application.extensions())
-        extensions.must_append(serialize_extension(extension, true));
+        extensions.must_append(serialize_extension(extension, true, assigned));
     for (auto const& extension : application.disabled_extensions())
-        extensions.must_append(serialize_extension(extension, false));
+        extensions.must_append(serialize_extension(extension, false, {}));
 
     JsonArray errors;
     for (auto const& [directory, error] : application.extension_load_errors()) {
@@ -315,6 +343,39 @@ void ExtensionsUI::revoke_extension_permission(JsonValue const& data)
     // NB: Every open page is drawn again when the grants change. This one is also drawn when nothing did, such as when
     //     the extension had already given the permission up.
     Application::the().extension_host().revoke_granted_permissions(*id, revoked);
+    load_extensions();
+}
+
+void ExtensionsUI::set_extension_shortcut(JsonValue const& data)
+{
+    if (!data.is_object())
+        return;
+    auto const& object = data.as_object();
+    auto id = object.get_string("id"sv);
+    auto command = object.get_string("command"sv);
+    if (!id.has_value() || !command.has_value())
+        return;
+
+    // The page names the keys the user held, as the profile keeps them; null takes the shortcut away.
+    Optional<ExtensionShortcut> shortcut;
+    Optional<String> failure;
+    if (auto text = object.get_string("shortcut"sv); text.has_value()) {
+        shortcut = parse_stored_shortcut(*text, current_shortcut_platform());
+        if (!shortcut.has_value())
+            failure = current_shortcut_platform() == ShortcutPlatform::MacOS
+                ? "Hold Command, Control or Option with a letter, a digit or one of a few other keys"_string
+                : "Hold Ctrl or Alt (but not both) with a letter, a digit or one of a few other keys"_string;
+    }
+    if (!failure.has_value())
+        failure = Application::the().set_extension_shortcut(*id, *command, shortcut);
+
+    if (failure.has_value()) {
+        JsonObject message;
+        message.set("id"sv, *id);
+        message.set("command"sv, *command);
+        message.set("error"sv, failure.release_value());
+        async_send_message("shortcutFailed"sv, move(message));
+    }
     load_extensions();
 }
 

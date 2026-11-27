@@ -617,6 +617,9 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
     if (api == "windows.update"sv)
         return complete(result(window_object(false)));
 
+    if (api == "commands.getAll"sv)
+        return complete(commands_get_all(extension));
+
     // https://developer.chrome.com/docs/extensions/reference/api/permissions
     if (api.starts_with("permissions."sv))
         return permissions_call(extension, api.substring_view(12), arguments, move(complete));
@@ -2612,6 +2615,86 @@ void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
     JsonArray arguments;
     arguments.must_append(tabs_as_seen_by(*extension, tab_object_for(views[*index], *index)));
     broadcast_event(extension->id, "action.onClicked"sv, arguments);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/commands#method-getAll
+ExtensionHost::CallResult ExtensionHost::commands_get_all(LoadedExtension const& extension)
+{
+    auto platform = current_shortcut_platform();
+    auto assigned = Application::the().assigned_extension_shortcuts();
+
+    JsonArray commands;
+    for (auto const& command : commands_of(extension, platform)) {
+        JsonObject object;
+        object.set("name"sv, command.name);
+        object.set("description"sv, command.description);
+        String shortcut;
+        for (auto const& assignment : assigned) {
+            if (assignment.extension_id == extension.id && assignment.command == command.name)
+                shortcut = display_shortcut_text(assignment.shortcut, platform);
+        }
+        object.set("shortcut"sv, move(shortcut));
+        commands.must_append(move(object));
+    }
+    return result(commands);
+}
+
+bool ExtensionHost::handle_key_event_for_commands(ViewImplementation& view, Web::KeyEvent const& event)
+{
+    using Web::UIEvents::KeyModifier;
+
+    // Every shortcut holds Ctrl, Alt or Command, so other keys go straight to the page.
+    if (event.type != Web::KeyEvent::Type::KeyDown || (event.modifiers & (KeyModifier::Mod_Ctrl | KeyModifier::Mod_Alt | KeyModifier::Mod_Super)) == 0)
+        return false;
+    if (Application::the().extensions().is_empty())
+        return false;
+
+    // NB: about:extensions takes the keys the user presses to choose a shortcut, including those in use.
+    if (view.url().scheme() == "about"sv && view.url().serialize_path() == "extensions"sv)
+        return false;
+
+    ExtensionShortcut pressed { event.key, event.modifiers & (KeyModifier::Mod_Ctrl | KeyModifier::Mod_Alt | KeyModifier::Mod_Shift | KeyModifier::Mod_Super) };
+    for (auto const& assignment : Application::the().assigned_extension_shortcuts()) {
+        if (assignment.shortcut != pressed)
+            continue;
+
+        auto views = tab_views();
+        Optional<size_t> index;
+        for (size_t i = 0; i < views.size(); ++i) {
+            if (&views[i] == &view)
+                index = i;
+        }
+        // Only tabs run commands; the key goes on to a popup or another view.
+        if (!index.has_value())
+            return false;
+
+        // A held key runs its command once.
+        if (!event.repeat) {
+            if (auto const* extension = Application::the().extension_with_id(assignment.extension_id))
+                run_command(*extension, assignment.command, views[*index], *index);
+        }
+        return true;
+    }
+    return false;
+}
+
+void ExtensionHost::run_command(LoadedExtension const& extension, StringView command, ViewImplementation& view, size_t tab_index)
+{
+    // The command that clicks the toolbar button does what a click does, popup and all.
+    if (is_execute_action_command(command)) {
+        action_clicked(extension.id, view.view_id());
+        return;
+    }
+
+    // Like a click on the toolbar button, a command the user ran on a tab gives the extension the tab.
+    // https://developer.chrome.com/docs/extensions/develop/concepts/activeTab#invoking-activeTab
+    grant_active_tab(extension, view);
+    if (!dispatches_events())
+        return;
+    JsonArray arguments;
+    arguments.must_append(MUST(String::from_utf8(command)));
+    arguments.must_append(tabs_as_seen_by(extension, tab_object_for(view, tab_index)));
+    broadcast_event(extension.id, "commands.onCommand"sv, arguments);
 }
 
 static Vector<String> strings_in(JsonObject const& object, StringView key)

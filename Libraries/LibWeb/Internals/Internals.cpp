@@ -732,13 +732,14 @@ void Internals::send_text_through_ui_process(Utf16String const& text)
     }
 }
 
-void Internals::send_key_through_ui_process(Utf16String const& key_name)
+void Internals::send_key_through_ui_process(Utf16String const& key_name, WebIDL::UnsignedShort modifiers)
 {
     let_compositor_take_in_every_rendered_frame(window());
     for (auto type : { Web::KeyEvent::Type::KeyDown, Web::KeyEvent::Type::KeyUp }) {
         Web::KeyEvent event;
         event.type = type;
         event.key = UIEvents::key_code_from_string(key_name.utf16_view());
+        event.modifiers = static_cast<UIEvents::KeyModifier>(modifiers);
         page().client().page_did_request_key_event_for_testing(move(event));
     }
 }

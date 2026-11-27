@@ -1,0 +1,14 @@
+{
+    "manifest_version": 3,
+    "name": "Commands probe",
+    "version": "1.0",
+    "description": "Logs its keyboard commands: one marks the tab through activeTab, another clicks its toolbar button.",
+    "permissions": ["activeTab", "scripting", "storage"],
+    "action": { "default_title": "Commands probe" },
+    "background": { "service_worker": "bg.js" },
+    "commands": {
+        "mark-tab": { "description": "Mark the tab", "suggested_key": { "default": "Alt+Shift+K" } },
+        "_execute_action": { "suggested_key": { "default": "Alt+Shift+J" } },
+        "unbound": { "description": "Has no shortcut" }
+    }
+}

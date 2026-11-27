@@ -36,6 +36,8 @@ private:
     void forget_extension_folder(JsonValue const&);
     // Takes back an optional permission or host permission the user granted an extension.
     void revoke_extension_permission(JsonValue const&);
+    // Gives a command of an extension the shortcut the user pressed, or takes its shortcut away.
+    void set_extension_shortcut(JsonValue const&);
     void report_failure(StringView action, String const& extension_id, Error const&);
 };
 

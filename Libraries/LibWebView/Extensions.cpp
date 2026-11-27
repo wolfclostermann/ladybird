@@ -496,6 +496,287 @@ String serialize_extensions_for_web_content(Vector<LoadedExtension> const& exten
     return array.serialized();
 }
 
+ShortcutPlatform current_shortcut_platform()
+{
+#if defined(AK_OS_MACOS)
+    return ShortcutPlatform::MacOS;
+#elif defined(AK_OS_WINDOWS)
+    return ShortcutPlatform::Windows;
+#else
+    return ShortcutPlatform::Linux;
+#endif
+}
+
+using Web::UIEvents::KeyCode;
+using Web::UIEvents::KeyModifier;
+
+static constexpr auto shortcut_modifiers = KeyModifier::Mod_Ctrl | KeyModifier::Mod_Alt | KeyModifier::Mod_Shift | KeyModifier::Mod_Super;
+
+// The keys other than letters and digits that a shortcut may use, with the names manifests give them.
+// https://developer.chrome.com/docs/extensions/reference/api/commands#supported_keys
+struct ShortcutKeyName {
+    KeyCode key;
+    StringView name;
+    // What macOS shows for the key, if not its name.
+    StringView macos_symbol;
+};
+static constexpr ShortcutKeyName shortcut_key_names[] = {
+    { KeyCode::Key_Comma, "Comma"sv, ","sv },
+    { KeyCode::Key_Period, "Period"sv, "."sv },
+    { KeyCode::Key_Home, "Home"sv, "↖"sv },
+    { KeyCode::Key_End, "End"sv, "↘"sv },
+    { KeyCode::Key_PageUp, "PageUp"sv, "⇞"sv },
+    { KeyCode::Key_PageDown, "PageDown"sv, "⇟"sv },
+    { KeyCode::Key_Space, "Space"sv, {} },
+    { KeyCode::Key_Insert, "Insert"sv, {} },
+    { KeyCode::Key_Delete, "Delete"sv, "⌦"sv },
+    { KeyCode::Key_Up, "Up"sv, "↑"sv },
+    { KeyCode::Key_Down, "Down"sv, "↓"sv },
+    { KeyCode::Key_Left, "Left"sv, "←"sv },
+    { KeyCode::Key_Right, "Right"sv, "→"sv },
+};
+
+static bool is_letter_or_digit_key(KeyCode key)
+{
+    return (key >= KeyCode::Key_A && key <= KeyCode::Key_Z) || (key >= KeyCode::Key_0 && key <= KeyCode::Key_9);
+}
+
+static Optional<KeyCode> shortcut_key_named(StringView name)
+{
+    if (name.length() == 1) {
+        auto character = to_ascii_uppercase(name[0]);
+        if (is_ascii_upper_alpha(character) || is_ascii_digit(character))
+            return Web::UIEvents::code_point_to_key_code(character);
+        return {};
+    }
+    for (auto const& key_name : shortcut_key_names) {
+        if (key_name.name.equals_ignoring_ascii_case(name))
+            return key_name.key;
+    }
+    return {};
+}
+
+static String shortcut_key_name(KeyCode key, ShortcutPlatform platform)
+{
+    if (is_letter_or_digit_key(key))
+        return String::from_code_point(static_cast<u32>(key));
+    for (auto const& key_name : shortcut_key_names) {
+        if (key_name.key != key)
+            continue;
+        if (platform == ShortcutPlatform::MacOS && !key_name.macos_symbol.is_empty())
+            return MUST(String::from_utf8(key_name.macos_symbol));
+        return MUST(String::from_utf8(key_name.name));
+    }
+    return {};
+}
+
+bool is_valid_extension_shortcut(ExtensionShortcut shortcut, ShortcutPlatform platform)
+{
+    if (!is_letter_or_digit_key(shortcut.key) && !any_of(ReadonlySpan<ShortcutKeyName> { shortcut_key_names }, [&](auto const& name) { return name.key == shortcut.key; }))
+        return false;
+    auto modifiers = shortcut.modifiers;
+    if ((modifiers & ~shortcut_modifiers) != 0)
+        return false;
+    if ((modifiers & (KeyModifier::Mod_Ctrl | KeyModifier::Mod_Alt | KeyModifier::Mod_Super)) == 0)
+        return false;
+    if (platform != ShortcutPlatform::MacOS) {
+        // Only macOS has a Command key, and elsewhere Ctrl+Alt is AltGr, which types characters.
+        if ((modifiers & KeyModifier::Mod_Super) != 0)
+            return false;
+        if ((modifiers & KeyModifier::Mod_Ctrl) != 0 && (modifiers & KeyModifier::Mod_Alt) != 0)
+            return false;
+    }
+    return true;
+}
+
+enum class ShortcutSyntax : u8 {
+    Manifest,
+    Stored,
+};
+
+static Optional<ExtensionShortcut> parse_shortcut(StringView text, ShortcutPlatform platform, ShortcutSyntax syntax)
+{
+    ExtensionShortcut shortcut;
+    for (auto token : text.split_view('+', SplitBehavior::KeepEmpty)) {
+        token = token.trim_whitespace();
+        Optional<KeyModifier> modifier;
+        if (token.equals_ignoring_ascii_case("Ctrl"sv))
+            modifier = syntax == ShortcutSyntax::Manifest && platform == ShortcutPlatform::MacOS ? KeyModifier::Mod_Super : KeyModifier::Mod_Ctrl;
+        else if (token.equals_ignoring_ascii_case("Command"sv) && platform == ShortcutPlatform::MacOS)
+            modifier = KeyModifier::Mod_Super;
+        else if (token.equals_ignoring_ascii_case("MacCtrl"sv) && syntax == ShortcutSyntax::Manifest && platform == ShortcutPlatform::MacOS)
+            modifier = KeyModifier::Mod_Ctrl;
+        else if (token.equals_ignoring_ascii_case("Alt"sv))
+            modifier = KeyModifier::Mod_Alt;
+        else if (token.equals_ignoring_ascii_case("Shift"sv))
+            modifier = KeyModifier::Mod_Shift;
+
+        if (modifier.has_value()) {
+            if ((shortcut.modifiers & *modifier) != 0)
+                return {};
+            shortcut.modifiers |= *modifier;
+            continue;
+        }
+
+        auto key = shortcut_key_named(token);
+        if (!key.has_value() || shortcut.key != KeyCode::Key_Invalid)
+            return {};
+        shortcut.key = *key;
+    }
+    if (!is_valid_extension_shortcut(shortcut, platform))
+        return {};
+    return shortcut;
+}
+
+Optional<ExtensionShortcut> parse_manifest_shortcut(StringView text, ShortcutPlatform platform)
+{
+    return parse_shortcut(text, platform, ShortcutSyntax::Manifest);
+}
+
+Optional<ExtensionShortcut> parse_stored_shortcut(StringView text, ShortcutPlatform platform)
+{
+    return parse_shortcut(text, platform, ShortcutSyntax::Stored);
+}
+
+String stored_shortcut_text(ExtensionShortcut shortcut)
+{
+    StringBuilder builder;
+    auto add = [&](KeyModifier modifier, StringView name) {
+        if ((shortcut.modifiers & modifier) != 0)
+            builder.appendff("{}+", name);
+    };
+    add(KeyModifier::Mod_Ctrl, "Ctrl"sv);
+    add(KeyModifier::Mod_Alt, "Alt"sv);
+    add(KeyModifier::Mod_Shift, "Shift"sv);
+    add(KeyModifier::Mod_Super, "Command"sv);
+    builder.append(shortcut_key_name(shortcut.key, ShortcutPlatform::Linux));
+    return builder.to_string_without_validation();
+}
+
+String display_shortcut_text(ExtensionShortcut shortcut, ShortcutPlatform platform)
+{
+    StringBuilder builder;
+    if (platform == ShortcutPlatform::MacOS) {
+        // In the order macOS shows modifiers in, with no separators.
+        if ((shortcut.modifiers & KeyModifier::Mod_Ctrl) != 0)
+            builder.append("⌃"sv);
+        if ((shortcut.modifiers & KeyModifier::Mod_Alt) != 0)
+            builder.append("⌥"sv);
+        if ((shortcut.modifiers & KeyModifier::Mod_Shift) != 0)
+            builder.append("⇧"sv);
+        if ((shortcut.modifiers & KeyModifier::Mod_Super) != 0)
+            builder.append("⌘"sv);
+    } else {
+        if ((shortcut.modifiers & KeyModifier::Mod_Ctrl) != 0)
+            builder.append("Ctrl+"sv);
+        if ((shortcut.modifiers & KeyModifier::Mod_Alt) != 0)
+            builder.append("Alt+"sv);
+        if ((shortcut.modifiers & KeyModifier::Mod_Shift) != 0)
+            builder.append("Shift+"sv);
+    }
+    builder.append(shortcut_key_name(shortcut.key, platform));
+    return builder.to_string_without_validation();
+}
+
+bool is_execute_action_command(StringView name)
+{
+    return name.is_one_of("_execute_action"sv, "_execute_browser_action"sv, "_execute_page_action"sv);
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/commands#manifest
+static Optional<StringView> suggested_key_text(JsonValue const& suggested_key, ShortcutPlatform platform)
+{
+    if (suggested_key.is_string())
+        return suggested_key.as_string().bytes_as_string_view();
+    if (!suggested_key.is_object())
+        return {};
+    auto const& keys = suggested_key.as_object();
+    auto platform_key = [&] {
+        switch (platform) {
+        case ShortcutPlatform::MacOS:
+            return "mac"sv;
+        case ShortcutPlatform::Windows:
+            return "windows"sv;
+        case ShortcutPlatform::Linux:
+            return "linux"sv;
+        }
+        VERIFY_NOT_REACHED();
+    }();
+    if (auto text = keys.get_string(platform_key); text.has_value())
+        return text->bytes_as_string_view();
+    if (auto text = keys.get_string("default"sv); text.has_value())
+        return text->bytes_as_string_view();
+    return {};
+}
+
+Vector<ExtensionCommand> commands_of(LoadedExtension const& extension, ShortcutPlatform platform)
+{
+    static constexpr size_t maximum_suggested_shortcuts = 4;
+
+    Vector<ExtensionCommand> commands;
+    size_t suggested_shortcuts = 0;
+    if (auto declared = extension.manifest.get_object("commands"sv); declared.has_value()) {
+        declared->for_each_member([&](String const& name, JsonValue const& value) {
+            ExtensionCommand command { .name = name, .description = {}, .suggested_shortcut = {} };
+            if (value.is_object()) {
+                command.description = value.as_object().get_string("description"sv).value_or({});
+                if (auto suggested_key = value.as_object().get("suggested_key"sv); suggested_key.has_value()) {
+                    auto text = suggested_key_text(*suggested_key, platform);
+                    auto shortcut = text.has_value() ? parse_manifest_shortcut(*text, platform) : Optional<ExtensionShortcut> {};
+                    if (text.has_value() && !shortcut.has_value())
+                        dbgln("Extension {}: ignoring the shortcut \"{}\" of its command {}", extension.id, *text, name);
+                    if (shortcut.has_value() && suggested_shortcuts++ < maximum_suggested_shortcuts)
+                        command.suggested_shortcut = shortcut;
+                }
+            }
+            commands.append(move(command));
+        });
+    }
+
+    // The command that clicks the toolbar button, whether the manifest names it or not.
+    if (action_of(extension).has_value() && !any_of(commands, [](auto const& command) { return is_execute_action_command(command.name); })) {
+        auto name = extension.manifest.get_integer<i64>("manifest_version"sv).value_or(2) >= 3 ? "_execute_action"_string : "_execute_browser_action"_string;
+        commands.append({ .name = move(name), .description = {}, .suggested_shortcut = {} });
+    }
+    return commands;
+}
+
+Vector<AssignedExtensionShortcut> assign_extension_shortcuts(ReadonlySpan<LoadedExtension> extensions, ExtensionShortcutChoices const& choices, ShortcutPlatform platform)
+{
+    Vector<AssignedExtensionShortcut> assigned;
+    auto is_taken = [&](ExtensionShortcut shortcut) {
+        return any_of(assigned, [&](auto const& other) { return other.shortcut == shortcut; });
+    };
+
+    Vector<Vector<ExtensionCommand>> commands;
+    for (auto const& extension : extensions)
+        commands.append(commands_of(extension, platform));
+
+    // What the user chose comes first, then what the manifests suggest for the commands the user left alone.
+    for (size_t i = 0; i < extensions.size(); ++i) {
+        auto chosen = choices.get(extensions[i].id);
+        if (!chosen.has_value())
+            continue;
+        for (auto const& command : commands[i]) {
+            auto text = chosen->get(command.name);
+            if (!text.has_value() || text->is_empty())
+                continue;
+            if (auto shortcut = parse_stored_shortcut(*text, platform); shortcut.has_value() && !is_taken(*shortcut))
+                assigned.append({ extensions[i].id, command.name, *shortcut });
+        }
+    }
+    for (size_t i = 0; i < extensions.size(); ++i) {
+        auto chosen = choices.get(extensions[i].id);
+        for (auto const& command : commands[i]) {
+            if (chosen.has_value() && chosen->contains(command.name))
+                continue;
+            if (command.suggested_shortcut.has_value() && !is_taken(*command.suggested_shortcut))
+                assigned.append({ extensions[i].id, command.name, *command.suggested_shortcut });
+        }
+    }
+    return assigned;
+}
+
 // https://developer.chrome.com/docs/extensions/reference/api/tabs#event-onMoved
 Vector<TabMove> tab_moves_between(ReadonlySpan<u64> before, ReadonlySpan<u64> after, HashTable<u64> const& requested_moves)
 {

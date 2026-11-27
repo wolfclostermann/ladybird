@@ -133,6 +133,12 @@ public:
     // Asks the user for the folder of an unpacked extension to install, or for a packed one's file. Rejected if they
     // cancel, or without a UI.
     virtual NonnullRefPtr<Core::Promise<ByteString>> ask_user_for_extension_path(bool package) const;
+    // The shortcuts that run the commands of the enabled extensions: those the user chose, else those the manifests
+    // suggest. https://developer.chrome.com/docs/extensions/reference/api/commands
+    Vector<AssignedExtensionShortcut> assigned_extension_shortcuts() const;
+    // Gives a command of an enabled extension a shortcut, or takes its shortcut away, for this run and later ones. Fails,
+    // saying why, if another command has the shortcut.
+    Optional<String> set_extension_shortcut(StringView id, StringView command, Optional<ExtensionShortcut>);
     // Sets the optional permissions the user granted an extension, for this run and later ones.
     void set_extension_granted_permissions(StringView id, ExtensionPermissions);
     // Asks the user whether to grant an extension the permissions that the descriptions describe. False if they
@@ -747,6 +753,7 @@ private:
     Vector<ByteString> m_installed_extension_paths;
     Vector<String> m_pinned_extension_ids;
     HashMap<String, ExtensionPermissions> m_granted_extension_permissions;
+    ExtensionShortcutChoices m_extension_shortcut_choices;
     // NB: The host outlives the views of background pages, which it hears of as they go away.
     ExtensionHost m_extension_host;
     HashMap<String, NonnullOwnPtr<HeadlessWebView>> m_extension_background_views;

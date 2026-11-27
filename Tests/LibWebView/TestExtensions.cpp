@@ -558,3 +558,139 @@ TEST_CASE(tab_moves_of_several_tabs_follow_chromium)
     // Without knowing, the fewest tabs moved.
     EXPECT_EQ(describe(WebView::tab_moves_between(Array<u64, 5> { 4, 9, 2, 1, 3 }, Array<u64, 5> { 9, 1, 3, 4, 2 }, {})), "4:0->4 2:1->4"sv);
 }
+
+using Web::UIEvents::KeyCode;
+using Web::UIEvents::KeyModifier;
+using WebView::ShortcutPlatform;
+
+static WebView::ExtensionShortcut shortcut(KeyModifier modifiers, KeyCode key)
+{
+    return { key, modifiers };
+}
+
+// A shortcut, or none, as text to compare.
+static String text_of(Optional<WebView::ExtensionShortcut> const& shortcut)
+{
+    return shortcut.has_value() ? WebView::stored_shortcut_text(*shortcut) : "none"_string;
+}
+
+TEST_CASE(manifest_shortcuts_name_platform_keys)
+{
+    // On macOS, a manifest's Ctrl is the Command key, and MacCtrl the Control key.
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("Ctrl+Shift+Y"sv, ShortcutPlatform::Linux)), text_of(shortcut(KeyModifier::Mod_Ctrl | KeyModifier::Mod_Shift, KeyCode::Key_Y)));
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("Ctrl+Shift+Y"sv, ShortcutPlatform::MacOS)), text_of(shortcut(KeyModifier::Mod_Super | KeyModifier::Mod_Shift, KeyCode::Key_Y)));
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("Command+Shift+Y"sv, ShortcutPlatform::MacOS)), text_of(shortcut(KeyModifier::Mod_Super | KeyModifier::Mod_Shift, KeyCode::Key_Y)));
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("MacCtrl+Comma"sv, ShortcutPlatform::MacOS)), text_of(shortcut(KeyModifier::Mod_Ctrl, KeyCode::Key_Comma)));
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("Alt+Up"sv, ShortcutPlatform::Windows)), text_of(shortcut(KeyModifier::Mod_Alt, KeyCode::Key_Up)));
+    EXPECT_EQ(text_of(WebView::parse_manifest_shortcut("alt+shift+7"sv, ShortcutPlatform::Linux)), text_of(shortcut(KeyModifier::Mod_Alt | KeyModifier::Mod_Shift, KeyCode::Key_7)));
+
+    // Command and MacCtrl exist only on macOS.
+    EXPECT(!WebView::parse_manifest_shortcut("Command+Y"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("MacCtrl+Y"sv, ShortcutPlatform::Windows).has_value());
+}
+
+TEST_CASE(shortcuts_need_ctrl_or_alt_and_one_usable_key)
+{
+    EXPECT(!WebView::parse_manifest_shortcut("Shift+Y"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Y"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+Alt+Y"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+Y+Z"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+Shift"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+Ctrl+Y"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+Tab"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut("Ctrl+F5"sv, ShortcutPlatform::Linux).has_value());
+    EXPECT(!WebView::parse_manifest_shortcut(""sv, ShortcutPlatform::Linux).has_value());
+    // macOS has no AltGr, so Command+Option may be used there.
+    EXPECT(WebView::parse_manifest_shortcut("Ctrl+Alt+Y"sv, ShortcutPlatform::MacOS).has_value());
+}
+
+TEST_CASE(stored_shortcuts_name_the_keys_held)
+{
+    auto command_shift_y = shortcut(KeyModifier::Mod_Super | KeyModifier::Mod_Shift, KeyCode::Key_Y);
+    EXPECT_EQ(WebView::stored_shortcut_text(command_shift_y), "Shift+Command+Y"sv);
+    EXPECT_EQ(text_of(WebView::parse_stored_shortcut("Shift+Command+Y"sv, ShortcutPlatform::MacOS)), text_of(command_shift_y));
+    // Unlike a manifest's, a stored Ctrl is the Control key on macOS too.
+    EXPECT_EQ(text_of(WebView::parse_stored_shortcut("Ctrl+Period"sv, ShortcutPlatform::MacOS)), text_of(shortcut(KeyModifier::Mod_Ctrl, KeyCode::Key_Period)));
+    EXPECT(!WebView::parse_stored_shortcut("Command+Y"sv, ShortcutPlatform::Linux).has_value());
+
+    EXPECT_EQ(WebView::display_shortcut_text(command_shift_y, ShortcutPlatform::MacOS), "⇧⌘Y"sv);
+    EXPECT_EQ(WebView::display_shortcut_text(shortcut(KeyModifier::Mod_Ctrl | KeyModifier::Mod_Alt, KeyCode::Key_Left), ShortcutPlatform::MacOS), "⌃⌥←"sv);
+    EXPECT_EQ(WebView::display_shortcut_text(shortcut(KeyModifier::Mod_Alt | KeyModifier::Mod_Shift, KeyCode::Key_PageUp), ShortcutPlatform::Linux), "Alt+Shift+PageUp"sv);
+}
+
+static StringView const commands_manifest = R"({
+    "manifest_version": 3,
+    "action": {},
+    "commands": {
+        "first": { "description": "First", "suggested_key": { "default": "Alt+Shift+1", "mac": "Command+Shift+1" } },
+        "second": { "description": "Second", "suggested_key": "Alt+Shift+2" },
+        "broken": { "description": "Broken", "suggested_key": "Shift+3" },
+        "third": { "suggested_key": { "linux": "Alt+Shift+3" } },
+        "fourth": { "suggested_key": "Alt+Shift+4" },
+        "fifth": { "suggested_key": "Alt+Shift+5" },
+        "plain": { "description": "No key" }
+    }
+})"sv;
+
+TEST_CASE(manifests_declare_commands)
+{
+    auto extension = extension_with_manifest(commands_manifest);
+
+    auto commands = WebView::commands_of(extension, ShortcutPlatform::MacOS);
+    Vector<String> names;
+    for (auto const& command : commands)
+        names.append(command.name);
+    // The command that clicks the toolbar button comes last, though the manifest doesn't name it.
+    EXPECT_EQ(names, (Vector<String> { "first"_string, "second"_string, "broken"_string, "third"_string, "fourth"_string, "fifth"_string, "plain"_string, "_execute_action"_string }));
+    EXPECT_EQ(commands[0].description, "First"sv);
+    EXPECT_EQ(text_of(commands[0].suggested_shortcut), text_of(shortcut(KeyModifier::Mod_Super | KeyModifier::Mod_Shift, KeyCode::Key_1)));
+    EXPECT(!commands[2].suggested_shortcut.has_value());
+    // A key for Linux only, so the fifth command's key is the fourth on macOS.
+    EXPECT(!commands[3].suggested_shortcut.has_value());
+    EXPECT(commands[4].suggested_shortcut.has_value());
+    EXPECT(commands[5].suggested_shortcut.has_value());
+
+    // An extension may suggest no more than four keys.
+    auto on_linux = WebView::commands_of(extension, ShortcutPlatform::Linux);
+    EXPECT_EQ(text_of(on_linux[3].suggested_shortcut), text_of(shortcut(KeyModifier::Mod_Alt | KeyModifier::Mod_Shift, KeyCode::Key_3)));
+    EXPECT(on_linux[4].suggested_shortcut.has_value());
+    EXPECT(!on_linux[5].suggested_shortcut.has_value());
+
+    // Manifest V2 has a browser action instead.
+    auto v2 = extension_with_manifest(R"({ "manifest_version": 2, "browser_action": {} })"sv);
+    auto v2_commands = WebView::commands_of(v2, ShortcutPlatform::Linux);
+    EXPECT_EQ(v2_commands.size(), 1u);
+    EXPECT_EQ(v2_commands[0].name, "_execute_browser_action"sv);
+    EXPECT(WebView::is_execute_action_command(v2_commands[0].name));
+}
+
+static String describe(Vector<WebView::AssignedExtensionShortcut> const& assigned)
+{
+    StringBuilder builder;
+    for (auto const& assignment : assigned)
+        builder.appendff("{}:{}={} ", assignment.extension_id.starts_with('a') ? "A"sv : "B"sv, assignment.command, WebView::stored_shortcut_text(assignment.shortcut));
+    return MUST(builder.to_string()).trim_ascii_whitespace().release_value();
+}
+
+TEST_CASE(shortcuts_go_to_the_user_first_and_then_to_the_first_extension)
+{
+    auto a = extension_with_manifest(R"({ "commands": { "go": { "suggested_key": "Alt+Shift+G" }, "stop": { "suggested_key": "Alt+Shift+S" } } })"sv);
+    auto b = extension_with_manifest(R"({ "commands": { "go": { "suggested_key": "Alt+Shift+G" }, "other": {} } })"sv);
+    b.id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"_string;
+    Vector<WebView::LoadedExtension> extensions { a, b };
+
+    // The first extension to suggest a key gets it.
+    EXPECT_EQ(describe(WebView::assign_extension_shortcuts(extensions, {}, ShortcutPlatform::Linux)), "A:go=Alt+Shift+G A:stop=Alt+Shift+S"sv);
+
+    // What the user chose wins over a suggestion, and a shortcut the user took away stays away.
+    WebView::ExtensionShortcutChoices choices;
+    choices.ensure(b.id).set("go"_string, "Alt+Shift+S"_string);
+    choices.ensure(a.id).set("go"_string, String {});
+    EXPECT_EQ(describe(WebView::assign_extension_shortcuts(extensions, choices, ShortcutPlatform::Linux)), "B:go=Alt+Shift+S"sv);
+
+    // A choice for a command the extension no longer has, or one that can't be used here, is left out.
+    choices.clear();
+    choices.ensure(b.id).set("gone"_string, "Alt+Shift+X"_string);
+    choices.ensure(b.id).set("other"_string, "Command+X"_string);
+    EXPECT_EQ(describe(WebView::assign_extension_shortcuts(extensions, choices, ShortcutPlatform::Linux)), "A:go=Alt+Shift+G A:stop=Alt+Shift+S"sv);
+}
