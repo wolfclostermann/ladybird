@@ -967,6 +967,9 @@
                 <button id="tab-button-blocking" class="tab-button" data-tab="blocking" role="tab">
                     Content blocking
                 </button>
+                <button id="tab-button-extensions" class="tab-button" data-tab="extensions" role="tab">
+                    Extensions
+                </button>
                 <button id="tab-button-feedback" class="tab-button" data-tab="feedback" role="tab">Feedback</button>
                 <button id="tab-button-advanced" class="tab-button" data-tab="advanced" role="tab">Advanced</button>
             </div>
@@ -1481,6 +1484,23 @@
                 </div>
             </div>
 
+            <div class="tab-panel" id="tab-extensions" data-title="Extensions">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="card-group inline-container control-row">
+                            <label for="manage-extensions">Load, turn on or off, and remove extensions.</label>
+                            <button id="manage-extensions" class="secondary-button">Manage extensions</button>
+                        </div>
+                        <div id="show-extensions-button-group" class="card-group inline-container control-row hidden">
+                            <label for="show-extensions-button">
+                                Show Extensions button in toolbar when no extensions are loaded
+                            </label>
+                            <input id="show-extensions-button" type="checkbox" switch />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="tab-panel" id="tab-feedback" data-title="Feedback">
                 <div class="card">
                     <div class="card-body">
@@ -1775,6 +1795,7 @@
         <script src="resource://ladybird/about-pages/settings/blocking.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/browsing-behavior.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/content.js" type="module"></script>
+        <script src="resource://ladybird/about-pages/settings/extensions.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/feedback.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/languages.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/network.js" type="module"></script>

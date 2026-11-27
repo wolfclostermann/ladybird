@@ -146,6 +146,9 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
     m_open_settings_page_action = Action::create("Settings"sv, ActionID::OpenSettingsPage, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_settings());
     });
+    m_open_extensions_page_action = Action::create("Extensions"sv, ActionID::OpenExtensionsPage, [] {
+        Application::the().activate_or_open_tab_with_url(URL::URL::about("extensions"sv));
+    });
 
     m_zoom_in_action = Action::create("Zoom In"sv, ActionID::ZoomIn, on_active_view([](RemoteView& view) {
         view.zoom_in();

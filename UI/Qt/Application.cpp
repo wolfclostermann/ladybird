@@ -498,6 +498,7 @@ public:
 
         m_open_settings_action = create_application_action(*m_application_widget, application.open_settings_page_action(), IncludeActionIcon::No);
         m_open_downloads_action = create_application_action(*m_application_widget, application.open_downloads_page_action(), IncludeActionIcon::No);
+        m_open_extensions_action = create_application_action(*m_application_widget, application.open_extensions_page_action(), IncludeActionIcon::No);
 
         m_toggle_bookmark_bar_action = create_application_action(*m_application_widget, Application::bookmarks().toggle_bookmark_bar_action(), IncludeActionIcon::No);
         m_toggle_sidebar_action = create_application_action(*m_application_widget, application.toggle_vertical_tabs_expanded_action(), IncludeActionIcon::No);
@@ -665,6 +666,7 @@ private:
     QAction* m_move_focus_action { nullptr };
     QAction* m_open_file_action { nullptr };
     QAction* m_open_settings_action { nullptr };
+    QAction* m_open_extensions_action { nullptr };
     QAction* m_open_downloads_action { nullptr };
     QAction* m_toggle_bookmark_bar_action { nullptr };
     QAction* m_toggle_sidebar_action { nullptr };
@@ -3273,6 +3275,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
     if (for_browser_window == ForBrowserWindow::Yes)
         file_menu->addAction(open_location_action());
     file_menu->addAction(open_downloads_action());
+    file_menu->addAction(open_extensions_action());
     file_menu->addSeparator();
     file_menu->addAction(quit_action());
 
@@ -3386,6 +3389,7 @@ DEFINE_APP_MENU_GETTER(QAction, move_focus_action);
 DEFINE_APP_MENU_GETTER(QAction, open_file_action);
 DEFINE_APP_MENU_GETTER(QAction, open_settings_action);
 DEFINE_APP_MENU_GETTER(QAction, open_downloads_action);
+DEFINE_APP_MENU_GETTER(QAction, open_extensions_action);
 DEFINE_APP_MENU_GETTER(QAction, toggle_bookmark_bar_action);
 DEFINE_APP_MENU_GETTER(QAction, toggle_sidebar_action);
 DEFINE_APP_MENU_GETTER(QAction, open_location_action);

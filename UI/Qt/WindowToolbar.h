@@ -122,6 +122,7 @@ private:
     void drop_extension_button(ExtensionActionButton&);
     void update_extensions_popover();
     void update_extension_buttons_visibility();
+    void update_extensions_menu_button_visibility();
     void click_extension_button(String const& extension_id);
 
     virtual bool event(QEvent*) override;

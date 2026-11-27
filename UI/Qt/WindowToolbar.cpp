@@ -2165,6 +2165,8 @@ void WindowToolbar::config_variable_changed(WebView::ConfigVariableID variable)
     }
     if (variable == WebView::ConfigVariableID::ShowTabPerformanceMonitor)
         update_performance_monitor_row();
+    if (variable == WebView::ConfigVariableID::ShowExtensionsButtonWithoutExtensions)
+        update_extensions_menu_button_visibility();
 }
 
 void WindowToolbar::update_performance_monitor_row()
@@ -2549,10 +2551,19 @@ void WindowToolbar::update_extension_buttons()
     }
 
     update_extension_buttons_visibility();
-    m_extensions_menu_button->setVisible(!m_extension_buttons.is_empty());
-    if (m_extension_buttons.is_empty() && m_extensions_popover)
-        m_extensions_popover->close();
+    update_extensions_menu_button_visibility();
     update_extensions_popover();
+}
+
+// The extensions menu's button shows while extensions are loaded, and, unless the user turned it off, while none are, so
+// that the menu can still manage them.
+void WindowToolbar::update_extensions_menu_button_visibility()
+{
+    auto show_button = !m_extension_buttons.is_empty()
+        || Application::settings().config_variable_as_bool(WebView::ConfigVariableID::ShowExtensionsButtonWithoutExtensions);
+    if (!show_button && m_extensions_popover)
+        m_extensions_popover->close();
+    m_extensions_menu_button->setVisible(show_button);
 }
 
 // The pinned buttons show, and the button of an extension whose popup is open.
@@ -2649,9 +2660,8 @@ void WindowToolbar::show_extensions_popover()
         m_extensions_popover->on_show_menu = [this](String const& extension_id, QPoint global_position) {
             show_extension_button_menu(extension_id, global_position);
         };
-        m_extensions_popover->on_manage_extensions = [this] {
-            if (m_tab)
-                m_tab->view().open_url_in_new_tab(URL::URL::about("extensions"sv), Web::HTML::ActivateTab::Yes);
+        m_extensions_popover->on_manage_extensions = [] {
+            Application::the().open_extensions_action()->trigger();
         };
     }
 

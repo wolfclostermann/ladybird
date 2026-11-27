@@ -149,6 +149,14 @@ static auto const& CONFIG_VARIABLE_DEFINITIONS = *new Array<ConfigVariableDefini
         .array_element_type = {},
     },
     {
+        .id = ConfigVariableID::ShowExtensionsButtonWithoutExtensions,
+        .name = "ui.toolbar.show_extensions_button_without_extensions"sv,
+        .title = "Show Extensions button when no extensions are loaded"sv,
+        .description = "Keep the Extensions button in the toolbar, so its menu can manage extensions, while no extensions are loaded."sv,
+        .default_value = true,
+        .array_element_type = {},
+    },
+    {
         .id = ConfigVariableID::UseClientSideWindowDecorations,
         .name = "ui.window.use_client_side_decorations"sv,
         .title = "Use client-side window decorations"sv,

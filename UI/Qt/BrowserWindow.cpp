@@ -571,6 +571,7 @@ void BrowserWindow::initialize_ladybird_menu()
     QObject::connect(downloads_action, &QAction::triggered, this, [this] {
         toolbar().show_downloads_popover();
     });
+    m_ladybird_menu->addAction(application.open_extensions_action());
     m_ladybird_menu->addSeparator();
 
     m_ladybird_menu_zoom_row = new MenuZoomRow(*m_ladybird_menu, *application.zoom_out_action(), *application.reset_zoom_action(), *application.zoom_in_action(), toolbar().zoom_level_action());

@@ -102,8 +102,11 @@ function loadConfigVariables(settings) {
 
     const configVariables = settings.configVariableDefinitions || [];
     configVariables.forEach(variable => {
-        // This one has its own switch on the Feedback tab.
-        if (variable.name === "ui.toolbar.show_feedback_button") {
+        // These have their own switches on the Feedback and Extensions tabs.
+        if (
+            variable.name === "ui.toolbar.show_feedback_button" ||
+            variable.name === "ui.toolbar.show_extensions_button_without_extensions"
+        ) {
             return;
         }
 

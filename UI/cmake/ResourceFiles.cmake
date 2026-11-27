@@ -52,6 +52,7 @@ set(ABOUT_SETTINGS_RESOURCES
     browsing-behavior.js
     content.js
     dialog-deep-link.js
+    extensions.js
     feedback.js
     languages.js
     network.js

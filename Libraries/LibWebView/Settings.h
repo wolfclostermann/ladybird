@@ -159,6 +159,7 @@ enum class ConfigVariableID : u8 {
     ShowAdvancedDebugMenu,
     ShowTabPerformanceMonitor,
     ShowFeedbackButton,
+    ShowExtensionsButtonWithoutExtensions,
     UseClientSideWindowDecorations,
     VerticalTabsHoverExpandDelay,
     VerticalTabsHoverExpandAnimationDuration,
