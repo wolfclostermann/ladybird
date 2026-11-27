@@ -127,7 +127,7 @@ All fixed. `TODO.md` is the live checklist.
   only Remove deletes one.
 - As in Chromium, extensions with an action are listed in the extensions menu (puzzle-piece button), and only the
   ones the user pins get a toolbar button; new extensions start unpinned. Pins and their order are kept in
-  `extensions.json` (`"pinned"`). Pinned buttons cannot be reordered by dragging yet. Right-clicking a button (or ⋮
+  `extensions.json` (`"pinned"`). Pinned buttons can be dragged into another order (Hub `move_pinned_extension`). Right-clicking a button (or ⋮
   in the menu) offers Options, Pin/Unpin, Turn Off, Remove from Ladybird… and Manage Extensions. The popup of an
   unpinned extension hangs from the puzzle-piece button (Chromium pops the icon out temporarily instead).
   `action.openPopup` opens the popup in the active tab and resolves before it has opened. The buttons are not shown

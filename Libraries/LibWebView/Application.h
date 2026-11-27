@@ -117,6 +117,8 @@ public:
     bool is_extension_pinned(StringView id) const;
     // Pins an extension's toolbar button, after the ones pinned before it, or unpins it, for this run and later ones.
     void set_extension_pinned(StringView id, bool pinned);
+    // Moves a pinned extension's toolbar button to a place among the pinned ones, as the user dragged it.
+    void move_pinned_extension(StringView id, size_t index);
     // Loads an enabled extension afresh from its folder, as after its files changed, and restarts it.
     ErrorOr<void> reload_extension(StringView id);
     // Tries again to load an extension that could not be loaded from a folder.

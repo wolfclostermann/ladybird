@@ -46,7 +46,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       Extensions. Open about:extensions pages update when an extension changes elsewhere.
 - [x] An extensions menu (puzzle-piece button) listing every extension with a toolbar button, with pinning, as in
       Chromium. Buttons are unpinned by default; pins and their order persist. `action.openPopup` and
-      `action.getUserSettings().isOnToolbar` work. No drag-to-reorder of pinned buttons yet.
+      `action.getUserSettings().isOnToolbar` work. Pinned buttons can be dragged into another order.
 
 ## Other APIs
 

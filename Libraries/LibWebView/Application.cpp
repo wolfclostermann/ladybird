@@ -1354,6 +1354,20 @@ void Application::set_extension_pinned(StringView id, bool pinned)
     extension_actions_changed();
 }
 
+void Application::move_pinned_extension(StringView id, size_t index)
+{
+    auto current = m_pinned_extension_ids.find_first_index_if([&](String const& pinned_id) { return pinned_id == id; });
+    if (!current.has_value())
+        return;
+    index = min(index, m_pinned_extension_ids.size() - 1);
+    if (index == *current)
+        return;
+    auto moved = m_pinned_extension_ids.take(*current);
+    m_pinned_extension_ids.insert(index, move(moved));
+    save_extensions_state();
+    extension_actions_changed();
+}
+
 LoadedExtension const* Application::extension_with_id(StringView id) const
 {
     for (auto const& extension : m_extensions) {

@@ -118,6 +118,8 @@ public:
 
 private:
     ExtensionActionButton* extension_button(String const& extension_id) const;
+    void drag_extension_button(ExtensionActionButton&, QPoint global_position);
+    void drop_extension_button(ExtensionActionButton&);
     void update_extensions_popover();
     void click_extension_button(String const& extension_id);
 

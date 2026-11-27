@@ -65,6 +65,7 @@ private:
     virtual void open_extension_options_page(String extension_id) override;
     virtual void turn_off_extension(String extension_id) override;
     virtual void set_extension_pinned(String extension_id, bool pinned) override;
+    virtual void move_pinned_extension(String extension_id, u32 index) override;
     virtual void remove_extension(String extension_id) override;
     virtual void add_web_ui_page(String host, String title) override;
     virtual void send_web_ui_message(u64 web_ui_id, String name, JsonValue data) override;

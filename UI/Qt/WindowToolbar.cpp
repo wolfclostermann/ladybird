@@ -737,6 +737,11 @@ public:
 
     String const& extension_id() const { return m_extension_id; }
 
+    // A pinned button may be dragged to another place among the pinned ones, as in Chromium. The toolbar moves it as
+    // the pointer moves, and keeps the new order once the user lets go.
+    Function<void(QPoint global_position)> on_drag_move;
+    Function<void()> on_drag_end;
+
     // The extension's name and whether it has an options page, for the button's menu.
     QString const& extension_name() const { return m_extension_name; }
     bool has_options_page() const { return m_has_options_page; }
@@ -759,6 +764,46 @@ public:
     }
 
 private:
+    virtual void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton)
+            m_press_position = event->globalPosition().toPoint();
+        ToolbarButton::mousePressEvent(event);
+    }
+
+    virtual void mouseMoveEvent(QMouseEvent* event) override
+    {
+        auto position = event->globalPosition().toPoint();
+        if (!m_dragging && m_is_pinned && m_press_position.has_value() && event->buttons().testFlag(Qt::LeftButton)
+            && (position - *m_press_position).manhattanLength() >= QApplication::startDragDistance()) {
+            m_dragging = true;
+            // NB: The button stays down while it is dragged, and letting go does not click it.
+            setDown(true);
+        }
+        if (!m_dragging) {
+            ToolbarButton::mouseMoveEvent(event);
+            return;
+        }
+        if (on_drag_move)
+            on_drag_move(position);
+        event->accept();
+    }
+
+    virtual void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton)
+            m_press_position.clear();
+        if (!m_dragging || event->button() != Qt::LeftButton) {
+            ToolbarButton::mouseReleaseEvent(event);
+            return;
+        }
+        m_dragging = false;
+        setDown(false);
+        event->accept();
+        if (on_drag_end)
+            on_drag_end();
+    }
+
     virtual void paintEvent(QPaintEvent* event) override
     {
         ToolbarButton::paintEvent(event);
@@ -794,6 +839,8 @@ private:
     QString m_extension_name;
     bool m_has_options_page { false };
     bool m_is_pinned { false };
+    Optional<QPoint> m_press_position;
+    bool m_dragging { false };
     QString m_badge_text;
     QColor m_badge_background;
     QColor m_badge_foreground;
@@ -2438,6 +2485,12 @@ void WindowToolbar::update_extension_buttons()
                 button->setChecked(false);
                 click_extension_button(button->extension_id());
             });
+            button->on_drag_move = [this, button](QPoint global_position) {
+                drag_extension_button(*button, global_position);
+            };
+            button->on_drag_end = [this, button] {
+                drop_extension_button(*button);
+            };
             button->setContextMenuPolicy(Qt::CustomContextMenu);
             QObject::connect(button, &QWidget::customContextMenuRequested, this, [this, button](QPoint const& position) {
                 show_extension_button_menu(button->extension_id(), button->mapToGlobal(position));
@@ -2502,6 +2555,34 @@ void WindowToolbar::update_extension_buttons()
     if (m_extension_buttons.is_empty() && m_extensions_popover)
         m_extensions_popover->close();
     update_extensions_popover();
+}
+
+// The pinned buttons come first in the layout, in the order the application gives, and the others are hidden after them.
+void WindowToolbar::drag_extension_button(ExtensionActionButton& button, QPoint global_position)
+{
+    auto* layout = static_cast<QBoxLayout*>(m_extension_buttons_container->layout());
+    auto x = m_extension_buttons_container->mapFromGlobal(global_position).x();
+
+    // The dragged button goes after every other pinned button whose middle the pointer has passed.
+    int index = 0;
+    for (auto* other : m_extension_buttons) {
+        if (other != &button && other->is_pinned() && other->geometry().center().x() < x)
+            ++index;
+    }
+    if (layout->indexOf(&button) == index)
+        return;
+    layout->removeWidget(&button);
+    layout->insertWidget(index, &button);
+}
+
+void WindowToolbar::drop_extension_button(ExtensionActionButton& button)
+{
+    auto index = m_extension_buttons_container->layout()->indexOf(&button);
+    auto previous_index = m_extension_buttons.find_first_index(&button);
+    if (index < 0 || !previous_index.has_value() || static_cast<size_t>(index) == *previous_index)
+        return;
+    // NB: The buttons are made again in the new order once the application has it, in every window.
+    HubConnection::the().async_move_pinned_extension(button.extension_id(), static_cast<u32>(index));
 }
 
 ExtensionActionButton* WindowToolbar::extension_button(String const& extension_id) const

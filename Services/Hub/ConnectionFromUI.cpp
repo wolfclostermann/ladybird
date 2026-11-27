@@ -198,6 +198,11 @@ void ConnectionFromUI::set_extension_pinned(String extension_id, bool pinned)
     Application::the().set_extension_pinned(extension_id, pinned);
 }
 
+void ConnectionFromUI::move_pinned_extension(String extension_id, u32 index)
+{
+    Application::the().move_pinned_extension(extension_id, index);
+}
+
 void ConnectionFromUI::remove_extension(String extension_id)
 {
     if (auto result = Application::the().remove_extension(extension_id); result.is_error())
