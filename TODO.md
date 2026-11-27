@@ -30,7 +30,7 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] The `chrome-extension://<id>/_favicon/` endpoint, for favicons in the Vomnibar. No default icon for pages without one.
 - [x] `tabs.update({pinned})`, for Vimium's pin toggle. Fires `tabs.onUpdated` with `pinned`; `tabs.query({pinned})` works.
 - [x] `tabs.onMoved`, also for moves the user makes (worked out from the tab strip order the UI reports).
-- [ ] Moving tabs between windows (`tabs.move` with `windowId`, `tabs.onAttached`/`onDetached`); there is one window, id 1.
+- [ ] **Parked:** moving tabs between windows (`tabs.move` with `windowId`, `tabs.onAttached`/`onDetached`); there is one window, id 1.
       Needs real windows first, all checked in the Qt UI: the UI reports each window's tab order and focus (today
       `tab_order_changed` is one flat list), ExtensionHost keeps view -> window and gives `tab.windowId`/`index` per
       window, `windows.get/getAll/getCurrent/getLastFocused` list real windows, `currentWindow`/`lastFocusedWindow`
@@ -41,8 +41,11 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
       the tab that was active in it, and `restore` resolves with the session as it was listed (no new tab IDs).
 - [x] `history.onVisited` and `history.onVisitRemoved`. Vimium reads the history once and then follows these, so
       without them pages visited since it started never reached the Vomnibar (`o`) and removed ones stayed there.
-- [ ] `windows.create`, for `W` (move tab to a new window); part of the multi-window work above.
-- [ ] `notifications.create`, which Vimium uses only to announce a major upgrade.
+- [ ] **Parked:** `windows.create`, for `W` (move tab to a new window); part of the multi-window work above, which
+      needs substantial changes to Ladybird's window handling.
+- [x] `chrome.notifications` (`create`, `update`, `clear`, `getAll`, `getPermissionLevel`, `onClicked`, `onClosed`), which
+      Vimium uses only to announce a major upgrade. Shown through the platform's notifications as the extension's; no
+      icons, images or buttons (a list's items and a progress value are shown as text).
 
 ## Next phase: UI
 
@@ -60,9 +63,10 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] An unpinned extension's button shows while its popup is open, and the popup hangs from it, as in Chromium.
 - [x] Reach `about:extensions` without the puzzle-piece button: an Extensions item in the Ladybird and File menus, and
       an Extensions tab in `about:settings`, whose switch (on by default) keeps the button while no extensions load.
-- [ ] Keyboard commands: read the manifest's `commands`, fire `commands.onCommand` and `_execute_action` (which also
-      grants `activeTab`), with a shortcuts page on `about:extensions` like `chrome://extensions/shortcuts`.
-      `chrome.commands` is only a placeholder today. Ladybird's own shortcuts stay fixed, as Chromium's are.
+- [x] Keyboard commands: the manifest's `commands` and their suggested keys, `commands.onCommand` (granting `activeTab`),
+      `_execute_action`/`_execute_browser_action` (a click on the toolbar button), `commands.getAll`, and a shortcuts view
+      at `about:extensions#shortcuts` to change or remove them, kept in `extensions.json` (`"shortcuts"`). Ladybird's own
+      reserved shortcuts stay fixed. Shortcuts only work while a tab's page has focus, not in the address bar or a popup.
 
 ## Other APIs
 
@@ -77,9 +81,11 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] WebDriver's Navigate To opens an extension's own pages. `Tests/LibWebView/test-webdriver-extensions.py` checks
       content scripts, extension pages and messaging through WebDriver under CTest.
 - [x] It also checks reload (and a failed one), remove, and that an extension turned off stays off after a restart.
-- [ ] Move the rest of the `tools/drive*.py` checks into it: Try Again, installed folders, Install from File….
+- [x] Move the rest of the `tools/drive*.py` checks into it: Try Again, installed folders (and forgetting a missing
+      one), turning an extension off closing its pages. Options, Load Unpacked… and Install from File… need a UI to open
+      a tab or choose a file, so they stay manual checks.
 - [x] Format the new code with clang-format (Xcode's 21 on the changed lines), prettier and ruff.
-- [ ] Close the security gaps before everyday use:
+- [x] Close the security gaps before everyday use:
   - [x] an extension's frame could share a process with the web page around it;
   - [x] the browser process trusted a renderer's claim about which extension is calling an API;
   - [x] the `matches` of an extension's `web_accessible_resources` weren't checked;
@@ -89,3 +95,10 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
         the web-accessible files, now fixed);
   - [x] `activeTab` (granted by clicking the toolbar button) and optional permissions (`permissions.request`, with a
         prompt) are supported. about:extensions lists granted optional permissions and can take them back.
+- [ ] Do an adversarial security review of all the extensions code added on this fork (IPC entry points, the
+      `chrome-extension:` scheme, path handling, permission checks, process isolation, CRX parsing), looking for ways
+      a web page or a malicious extension could get past the fixes above.
+
+## Out of scope
+
+- `declarativeNetRequest` / `webRequest`: only ad blockers need them, and ad blocking isn't planned.

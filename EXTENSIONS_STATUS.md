@@ -53,6 +53,9 @@ Goal: load unpacked Chrome extensions with `--load-extension=<dir>`, starting wi
 | `fb940498c5e` | An unpinned extension's toolbar button shows while its popup is open, and the popup hangs from it (Chromium). |
 | `cac7f68559b` | An Extensions item in the Ladybird and File menus, and an Extensions tab in `about:settings` with a switch that keeps the puzzle-piece button while no extensions are loaded. |
 | `6c4d206e759` | `history.onVisited` and `history.onVisitRemoved`, so pages visited since Vimium started reach the Vomnibar and removed ones leave it. |
+| `2e20729f8bc` | Keyboard commands: shortcuts from the manifest run `commands.onCommand` (granting `activeTab`) or `_execute_action`; `commands.getAll`; a Keyboard Shortcuts view on `about:extensions` changes or removes them. |
+| `a5c13d4fa22` | `chrome.notifications` (`create`, `update`, `clear`, `getAll`, `onClicked`, `onClosed`), shown through the platform's notifications. |
+| `abea9a519e8` | `test-webdriver-extensions.py` checks commands, shortcut editing, notifications, Try Again and installed folders (the old `drive*.py` checks). |
 
 ### Where the code lives
 
@@ -115,12 +118,16 @@ All fixed. `TODO.md` is the live checklist.
 
 ### APIs still missing
 
-- Writing bookmarks, `notifications`, `alarms`, `contextMenus`.
+- Writing bookmarks, `alarms`, `contextMenus`.
+- `notifications`: no icons, images or buttons; list items and progress are shown as text. Without a notification
+  platform (headless), nothing shows and the notification is forgotten at once.
 - Changing the history (`history.addUrl`, `deleteUrl`, `deleteRange`, `deleteAll`) and `history.getVisits`. Its events
   work.
-- `windows.create`, which Vimium's `W` needs.
-- `commands` (keyboard shortcuts for extensions): `chrome.commands` exists but nothing fires; no shortcuts page.
-- `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Not started.
+- `windows.create`, which Vimium's `W` needs. Parked with the rest of the multi-window work.
+- `commands`: shortcuts work only while a tab's page has the keyboard focus (they are caught in the browser process
+  before the page sees the key), not in the address bar or an extension's popup. `global` commands are not supported.
+  A shortcut may hide one of Ladybird's own that isn't reserved (reserved ones, such as new tab, always win).
+- `declarativeNetRequest` / `webRequest`: needed by any ad blocker. Out of scope: ad blocking isn't planned.
 - Manifest V3 service workers. Background pages are run as MV2-style pages; MV3 extensions that rely on a service
   worker lifecycle won't behave correctly.
 
@@ -226,8 +233,8 @@ extension's privileges. The three high-severity items below are fixed, and the f
    titles and favicons are only shown with `tabs` or host access, in results, `sender.tab` and `tabs` events;
    `webNavigation` events need their permission.
    `activeTab`: clicking an extension's toolbar button gives it the tab's origin (http/https only) for scripting and
-   seeing the tab, until the tab goes to another origin or closes. There are no keyboard commands or context menu
-   items yet, which also grant it in Chromium.
+   seeing the tab, until the tab goes to another origin or closes. Running one of its keyboard commands grants it too.
+   There are no context menu items yet, which also grant it in Chromium.
    Optional permissions: `permissions.request` (needs user activation) asks the user in a Qt dialog, and grants persist
    in `extensions.json` under `"granted"` until `permissions.remove` or removing the extension. `contains`/`getAll`
    count them, `onAdded`/`onRemoved` fire. Without a UI (WebDriver) requests are declined. A requested host may be

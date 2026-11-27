@@ -46,6 +46,12 @@ repeated.
     button is clicked, "yes" after, and "no" again once the tab goes to another origin.
   - `optional-ext`: optional permissions. Its popup asks for `history` and a host and gives them back;
     `tools/optional_permissions.py` drives the rest through WebDriver.
+  - `cmd-ext`: `chrome.commands`. `Alt+Shift+K` (⌥⇧K on macOS) marks the tab through `activeTab`, `Alt+Shift+J` runs
+    `_execute_action`, and a third command has no key. `page.html` lists the shortcuts and what the background page
+    logged (also `COMMANDS ...` lines). `test-webdriver-extensions.py` uses it.
+  - `notify-ext`: `chrome.notifications`. `page.html` has buttons for basic, list and progress notifications, an
+    update and Clear all; the background page logs clicks and closings as `NOTIFY ...` lines. Needs the Qt UI (no
+    notifications show headless).
   - `key-ext`, `log-ext`, `diag-ext`: synthetic key events, content script `console.log`, general diagnostics.
   - `broken-ext` (invalid JSON), `bad-ext` (unsupported manifest version), `nothing-ext` (a manifest and nothing
     else): load failures and the about:extensions layout.
@@ -69,9 +75,12 @@ repeated.
 
 ## Automated tests
 
-- `Tests/LibWebView/test-webdriver-extensions.py` (run by CTest as `test-webdriver-extensions`) loads `mark-ext` and
-  `msg-ext` through WebDriver: content scripts and turning an extension off on about:extensions, WebDriver opening an
-  extension's page while a web page can't, messages and ports between the extension's pages, reloading (also with
-  a broken manifest) and removing an extension, and an extension staying off after a restart.
-- The `tools/drive*.py` scripts cover more of about:extensions (Try Again, installed folders, Install from File…) and
-  still run by hand.
+- `Tests/LibWebView/test-webdriver-extensions.py` (run by CTest as `test-webdriver-extensions`) loads `mark-ext`,
+  `msg-ext`, `cmd-ext` and `notify-ext` through WebDriver: content scripts and turning an extension off on
+  about:extensions (which closes its pages), WebDriver opening an extension's page while a web page can't, messages and
+  ports between the extension's pages, reloading (also with a broken manifest) and removing an extension, Try Again for
+  a broken folder, folders installed with Load Unpacked… (and forgetting a missing one), an extension staying off after
+  a restart, keyboard commands and changing their shortcuts on `about:extensions#shortcuts`, and the checks
+  `chrome.notifications` makes.
+- The `tools/drive*.py` scripts are covered by it now, apart from what needs a UI: Options opening a tab, and Load
+  Unpacked… and Install from File… choosing a folder or file. Try those by hand in the Qt UI.
