@@ -24,11 +24,13 @@ failures = []
 
 def req(method, path, body=None):
     data = json.dumps(body).encode() if body is not None else None
-    r = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=data, method=method, headers={"Content-Type": "application/json"})
+    r = urllib.request.Request(
+        f"http://127.0.0.1:{PORT}{path}", data=data, method=method, headers={"Content-Type": "application/json"}
+    )
     try:
         return json.loads(urllib.request.urlopen(r, timeout=60).read())["value"]
     except urllib.error.HTTPError as e:
-        raise RuntimeError(e.read().decode())
+        raise RuntimeError(e.read().decode()) from e
 
 
 def check(label, actual, expected):
@@ -42,7 +44,17 @@ def check(label, actual, expected):
 class Session:
     def __init__(self):
         log = open(os.path.join(S, "webdriver-optional.log"), "a")
-        self.wd = subprocess.Popen([os.path.join(extension_fixtures.BIN, "WebDriver"), "--headless", f"--port={PORT}", f"--profile-path={PROFILE}", f"--load-extension={EXT}"], stdout=log, stderr=log)
+        self.wd = subprocess.Popen(
+            [
+                os.path.join(extension_fixtures.BIN, "WebDriver"),
+                "--headless",
+                f"--port={PORT}",
+                f"--profile-path={PROFILE}",
+                f"--load-extension={EXT}",
+            ],
+            stdout=log,
+            stderr=log,
+        )
         time.sleep(2)
         try:
             self.sid = req("POST", "/session", {"capabilities": {}})["sessionId"]
@@ -104,19 +116,46 @@ shutil.rmtree(PROFILE, ignore_errors=True)
 session = Session()
 try:
     print("extension", session.extension_id)
-    check("optional namespaces are there", session.run("return [typeof chrome.history, typeof chrome.bookmarks]"), ["object", "object"])
+    check(
+        "optional namespaces are there",
+        session.run("return [typeof chrome.history, typeof chrome.bookmarks]"),
+        ["object", "object"],
+    )
     check("history is refused before a grant", "error" in session.run_async("chrome.history.search({text: ''})"), True)
-    check("request without a gesture", session.run_async("chrome.permissions.request({permissions: ['history']})"),
-          {"error": "This function must be called during a user gesture"})
-    check("request for what the manifest does not name", session.click_request({"permissions": ["tabs"]}).get("error", "")[:59],
-          "Only permissions specified in the manifest may be requested")
-    check("request for a host outside the optional ones", "error" in session.click_request({"origins": ["https://example.com/*"]}), True)
+    check(
+        "request without a gesture",
+        session.run_async("chrome.permissions.request({permissions: ['history']})"),
+        {"error": "This function must be called during a user gesture"},
+    )
+    check(
+        "request for what the manifest does not name",
+        session.click_request({"permissions": ["tabs"]}).get("error", "")[:59],
+        "Only permissions specified in the manifest may be requested",
+    )
+    check(
+        "request for a host outside the optional ones",
+        "error" in session.click_request({"origins": ["https://example.com/*"]}),
+        True,
+    )
     check("request for what is held already", session.click_request({"permissions": ["storage"]}).get("granted"), True)
-    check("request nobody can grant", session.click_request({"permissions": ["history"], "origins": ["https://www.example.org/*"]}).get("granted"), False)
-    check("contains after declining", session.run_async("chrome.permissions.contains({permissions: ['history']})"), {"ok": False})
-    check("getAll", session.run_async("chrome.permissions.getAll()"), {"ok": {"permissions": ["storage"], "origins": []}})
-    check("removing a required permission", session.run_async("chrome.permissions.remove({permissions: ['storage']})"),
-          {"error": "You cannot remove required permissions."})
+    check(
+        "request nobody can grant",
+        session.click_request({"permissions": ["history"], "origins": ["https://www.example.org/*"]}).get("granted"),
+        False,
+    )
+    check(
+        "contains after declining",
+        session.run_async("chrome.permissions.contains({permissions: ['history']})"),
+        {"ok": False},
+    )
+    check(
+        "getAll", session.run_async("chrome.permissions.getAll()"), {"ok": {"permissions": ["storage"], "origins": []}}
+    )
+    check(
+        "removing a required permission",
+        session.run_async("chrome.permissions.remove({permissions: ['storage']})"),
+        {"error": "You cannot remove required permissions."},
+    )
     extension_id = session.extension_id
 finally:
     session.close()
@@ -124,26 +163,51 @@ finally:
 # What the user would have granted.
 path = state_file()
 state = json.load(open(path)) if os.path.exists(path) else {}
-state["granted"] = {extension_id: {"permissions": ["history", "notifications"], "origins": ["https://www.example.org/*"]}}
+state["granted"] = {
+    extension_id: {"permissions": ["history", "notifications"], "origins": ["https://www.example.org/*"]}
+}
 json.dump(state, open(path, "w"))
 
 session = Session()
 try:
-    check("granted permissions are held after a restart",
-          session.run_async("chrome.permissions.contains({permissions: ['history'], origins: ['https://www.example.org/*']})"), {"ok": True})
-    check("a grant the manifest no longer names is dropped", session.run_async("chrome.permissions.contains({permissions: ['notifications']})"), {"ok": False})
-    check("getAll with grants", session.run_async("chrome.permissions.getAll()"),
-          {"ok": {"permissions": ["storage", "history"], "origins": ["https://www.example.org/*"]}})
+    check(
+        "granted permissions are held after a restart",
+        session.run_async(
+            "chrome.permissions.contains({permissions: ['history'], origins: ['https://www.example.org/*']})"
+        ),
+        {"ok": True},
+    )
+    check(
+        "a grant the manifest no longer names is dropped",
+        session.run_async("chrome.permissions.contains({permissions: ['notifications']})"),
+        {"ok": False},
+    )
+    check(
+        "getAll with grants",
+        session.run_async("chrome.permissions.getAll()"),
+        {"ok": {"permissions": ["storage", "history"], "origins": ["https://www.example.org/*"]}},
+    )
     check("history works once granted", "ok" in session.run_async("chrome.history.search({text: ''})"), True)
-    check("removing a granted permission", session.run_async("chrome.permissions.remove({permissions: ['history']})"), {"ok": True})
+    check(
+        "removing a granted permission",
+        session.run_async("chrome.permissions.remove({permissions: ['history']})"),
+        {"ok": True},
+    )
     time.sleep(0.5)
     check("onRemoved", session.run("return self.log"), [{"removed": {"permissions": ["history"], "origins": []}}])
-    check("contains after removing", session.run_async("chrome.permissions.contains({permissions: ['history']})"), {"ok": False})
+    check(
+        "contains after removing",
+        session.run_async("chrome.permissions.contains({permissions: ['history']})"),
+        {"ok": False},
+    )
     check("history is refused again", "error" in session.run_async("chrome.history.search({text: ''})"), True)
 finally:
     session.close()
-check("saved grants after removing", json.load(open(state_file())).get("granted", {}).get(extension_id),
-      {"permissions": [], "origins": ["https://www.example.org/*"]})
+check(
+    "saved grants after removing",
+    json.load(open(state_file())).get("granted", {}).get(extension_id),
+    {"permissions": [], "origins": ["https://www.example.org/*"]},
+)
 
 # The user takes the remaining grant back on about:extensions.
 session = Session()
@@ -155,19 +219,32 @@ try:
     req("POST", f"/session/{session.sid}/url", {"url": "about:extensions"})
     time.sleep(1)
     granted_text = "return [...document.querySelectorAll('.granted-permission')].map(item => [...item.children].map(child => child.textContent))"
-    check("about:extensions lists the grant", session.run(granted_text),
-          [["Read and change your data on www.example.org", "Remove", "https://www.example.org/*"]])
+    check(
+        "about:extensions lists the grant",
+        session.run(granted_text),
+        [["Read and change your data on www.example.org", "Remove", "https://www.example.org/*"]],
+    )
     session.run("document.querySelector('.granted-permission button').click()")
     time.sleep(1)
     check("about:extensions drops the grant once removed", session.run(granted_text), [])
     req("POST", f"/session/{session.sid}/window", {"handle": background})
-    check("onRemoved after removing on about:extensions", session.run("return self.log"),
-          [{"removed": {"permissions": [], "origins": ["https://www.example.org/*"]}}])
-    check("contains after removing on about:extensions",
-          session.run_async("chrome.permissions.contains({origins: ['https://www.example.org/*']})"), {"ok": False})
+    check(
+        "onRemoved after removing on about:extensions",
+        session.run("return self.log"),
+        [{"removed": {"permissions": [], "origins": ["https://www.example.org/*"]}}],
+    )
+    check(
+        "contains after removing on about:extensions",
+        session.run_async("chrome.permissions.contains({origins: ['https://www.example.org/*']})"),
+        {"ok": False},
+    )
 finally:
     session.close()
-check("saved grants after removing on about:extensions", json.load(open(state_file())).get("granted", {}).get(extension_id), None)
+check(
+    "saved grants after removing on about:extensions",
+    json.load(open(state_file())).get("granted", {}).get(extension_id),
+    None,
+)
 
 print("FAILED: " + ", ".join(failures) if failures else "ALL PASSED")
 sys.exit(1 if failures else 0)

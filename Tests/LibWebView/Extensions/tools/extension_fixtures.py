@@ -4,7 +4,9 @@ import shutil
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.dirname(HERE)
 REPO = os.path.abspath(os.path.join(ASSETS, "..", "..", ".."))
-BIN = os.environ.get("LADYBIRD_BIN_DIR", os.path.join(REPO, "Build", "release", "bin", "Ladybird.app", "Contents", "MacOS"))
+BIN = os.environ.get(
+    "LADYBIRD_BIN_DIR", os.path.join(REPO, "Build", "release", "bin", "Ladybird.app", "Contents", "MacOS")
+)
 
 # The scripts write profiles and logs into a work directory and some of them change the extensions they load, so they
 # get copies of the fixtures there rather than the ones in the repository.
