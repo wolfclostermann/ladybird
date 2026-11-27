@@ -7,6 +7,7 @@
 #include <AK/JsonParser.h>
 #include <AK/LexicalPath.h>
 #include <AK/QuickSort.h>
+#include <AK/Random.h>
 #include <LibCore/File.h>
 #include <LibDatabase/Database.h>
 #include <LibGfx/Bitmap.h>
@@ -23,6 +24,7 @@
 #include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
 #include <LibWebView/HistoryStore.h>
+#include <LibWebView/NotificationManager.h>
 #include <LibWebView/SearchEngine.h>
 #include <LibWebView/Settings.h>
 #include <LibWebView/Utilities.h>
@@ -619,6 +621,9 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
 
     if (api == "commands.getAll"sv)
         return complete(commands_get_all(extension));
+
+    if (api.starts_with("notifications."sv))
+        return complete(notifications_call(extension, api.substring_view(14), arguments));
 
     // https://developer.chrome.com/docs/extensions/reference/api/permissions
     if (api.starts_with("permissions."sv))
@@ -2046,7 +2051,12 @@ ExtensionHost::ExtensionHost()
         Application::the().extension_actions_changed();
     };
 }
-ExtensionHost::~ExtensionHost() = default;
+ExtensionHost::~ExtensionHost()
+{
+    // NB: The notifications outlive the host, and their handlers must not reach it once it is gone.
+    for (auto const& extension_id : m_notifications.keys())
+        NotificationManager::the().close_all_for_extension(extension_id);
+}
 
 HistoryStore* ExtensionHost::history_store()
 {
@@ -2539,6 +2549,10 @@ void ExtensionHost::extension_did_unload(String const& extension_id)
         send();
 
     m_actions->forget(extension_id);
+
+    // Like Chromium, which takes an extension's notifications down with it.
+    if (m_notifications.remove(extension_id))
+        NotificationManager::the().close_all_for_extension(extension_id);
 }
 
 String ExtensionHost::serialized_actions()
@@ -2615,6 +2629,158 @@ void ExtensionHost::action_clicked(String const& extension_id, u64 view_id)
     JsonArray arguments;
     arguments.must_append(tabs_as_seen_by(*extension, tab_object_for(views[*index], *index)));
     broadcast_event(extension->id, "action.onClicked"sv, arguments);
+}
+
+// What the platform shows of an extension's notification. It has no buttons or images, so a list's items, a progress
+// bar's value and the context message are shown as lines of text.
+// https://developer.chrome.com/docs/extensions/reference/api/notifications#type-NotificationOptions
+static Web::NotificationsAPI::NotificationData notification_data_for(JsonObject const& options)
+{
+    StringBuilder body;
+    auto add_line = [&](StringView line) {
+        if (line.is_empty())
+            return;
+        if (!body.is_empty())
+            body.append('\n');
+        body.append(line);
+    };
+    add_line(options.get_string("message"sv).value_or({}));
+    if (auto items = options.get_array("items"sv); items.has_value()) {
+        items->for_each([&](JsonValue const& item) {
+            if (!item.is_object())
+                return;
+            add_line(MUST(String::formatted("{}: {}", item.as_object().get_string("title"sv).value_or({}), item.as_object().get_string("message"sv).value_or({}))));
+        });
+    }
+    if (options.get_string("type"sv) == "progress"sv) {
+        if (auto progress = options.get_integer<i64>("progress"sv); progress.has_value())
+            add_line(MUST(String::formatted("{}%", clamp(*progress, 0, 100))));
+    }
+    add_line(options.get_string("contextMessage"sv).value_or({}));
+
+    Web::NotificationsAPI::NotificationData data;
+    data.title = Utf16String::from_utf8(options.get_string("title"sv).value_or({}));
+    data.body = Utf16String::from_utf8(body.string_view());
+    data.require_interaction = options.get_bool("requireInteraction"sv).value_or(false);
+    if (auto silent = options.get_bool("silent"sv); silent.has_value())
+        data.silent = *silent;
+    return data;
+}
+
+void ExtensionHost::show_notification(LoadedExtension const& extension, String const& notification_id, JsonObject options, Optional<u64> replaces)
+{
+    using Event = NotificationManager::ExtensionNotificationEvent;
+    auto data = notification_data_for(options);
+
+    // NB: The platform may answer before the notification manager returns, such as when it can't show notifications,
+    //     so the notification is known by then.
+    m_notifications.ensure(extension.id).set(notification_id, { 0, move(options) });
+    auto id = NotificationManager::the().show_for_extension(extension.id, extension.name, move(data), replaces,
+        [this, extension_id = extension.id, notification_id](Event event) {
+            auto notifications = m_notifications.get(extension_id);
+            if (!notifications.has_value() || !notifications->contains(notification_id))
+                return;
+
+            JsonArray arguments;
+            arguments.must_append(notification_id);
+            if (event == Event::Clicked) {
+                if (dispatches_events())
+                    broadcast_event(extension_id, "notifications.onClicked"sv, arguments);
+                return;
+            }
+
+            notifications->remove(notification_id);
+            // Like Chromium, which tells of no notification it couldn't show.
+            if (event == Event::Failed || !dispatches_events())
+                return;
+            arguments.must_append(event == Event::ClosedByUser);
+            broadcast_event(extension_id, "notifications.onClosed"sv, arguments);
+        });
+
+    if (auto notifications = m_notifications.get(extension.id); notifications.has_value()) {
+        if (auto notification = notifications->get(notification_id); notification.has_value())
+            notification->id = id;
+    }
+}
+
+// https://developer.chrome.com/docs/extensions/reference/api/notifications
+ExtensionHost::CallResult ExtensionHost::notifications_call(LoadedExtension const& extension, StringView function, JsonArray const& arguments)
+{
+    auto argument = [&](size_t index) -> JsonValue {
+        return index < arguments.size() ? arguments.at(index) : JsonValue {};
+    };
+    auto existing = [&](String const& notification_id) -> Optional<ExtensionNotification&> {
+        auto notifications = m_notifications.get(extension.id);
+        if (!notifications.has_value())
+            return {};
+        return notifications->get(notification_id);
+    };
+
+    if (function == "create"sv) {
+        // The notification's ID may come first, and one is made up when it doesn't or is empty.
+        String notification_id;
+        JsonValue options_value = argument(0);
+        if (argument(0).is_string() || argument(0).is_null()) {
+            if (argument(0).is_string())
+                notification_id = argument(0).as_string();
+            options_value = argument(1);
+        }
+        if (!options_value.is_object())
+            return error("notifications.create needs options"sv);
+        auto const& options = options_value.as_object();
+        // Like Chromium, which also asks for an icon, though one isn't shown here.
+        if (!options.has_string("type"sv) || !options.has_string("title"sv) || !options.has_string("message"sv))
+            return error("Some of the required properties are missing: type, iconUrl, title and message."sv);
+        if (notification_id.is_empty())
+            notification_id = MUST(String::formatted("{:016x}{:016x}", get_random<u64>(), get_random<u64>()));
+
+        // A notification with the same ID takes the place of the one before.
+        Optional<u64> replaces;
+        if (auto notification = existing(notification_id); notification.has_value())
+            replaces = notification->id;
+        show_notification(extension, notification_id, options, replaces);
+        return result(notification_id);
+    }
+
+    if (function == "update"sv) {
+        if (!argument(0).is_string() || !argument(1).is_object())
+            return error("notifications.update needs an ID and options"sv);
+        auto notification_id = argument(0).as_string();
+        auto notification = existing(notification_id);
+        if (!notification.has_value())
+            return result(false);
+        auto options = notification->options;
+        argument(1).as_object().for_each_member([&](String const& key, JsonValue const& value) { options.set(key, value); });
+        show_notification(extension, notification_id, move(options), notification->id);
+        return result(true);
+    }
+
+    if (function == "clear"sv) {
+        if (!argument(0).is_string())
+            return error("notifications.clear needs an ID"sv);
+        auto notification = existing(argument(0).as_string());
+        if (!notification.has_value())
+            return result(false);
+        // Like Chromium, which doesn't tell the extension of a notification it cleared itself.
+        auto id = notification->id;
+        m_notifications.get(extension.id)->remove(argument(0).as_string());
+        NotificationManager::the().close_for_extension(id);
+        return result(true);
+    }
+
+    if (function == "getAll"sv) {
+        JsonObject all;
+        if (auto notifications = m_notifications.get(extension.id); notifications.has_value()) {
+            for (auto const& notification_id : notifications->keys())
+                all.set(notification_id, true);
+        }
+        return result(all);
+    }
+
+    if (function == "getPermissionLevel"sv)
+        return result("granted"sv);
+
+    return error(MUST(String::formatted("chrome.notifications.{} is not implemented yet", function)));
 }
 
 // https://developer.chrome.com/docs/extensions/reference/api/commands#method-getAll

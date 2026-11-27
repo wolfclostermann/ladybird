@@ -1,0 +1,8 @@
+{
+    "manifest_version": 3,
+    "name": "Notifications probe",
+    "version": "1.0",
+    "description": "Shows notifications from page.html and logs their clicks and closings as NOTIFY lines.",
+    "permissions": ["notifications"],
+    "background": { "service_worker": "bg.js" }
+}

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/Function.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/Optional.h>
 #include <AK/RefPtr.h>
@@ -48,6 +49,22 @@ public:
     // Drops everything a page's tests left behind: its live notifications and the clicks it owes an answer for.
     void reset_page_for_testing(WebContentPage&);
 
+    // A notification an extension shows with chrome.notifications, which tells the extension, not a page, what becomes
+    // of it. It replaces the one with the ID in replaces, if that is the extension's, without telling of that one's
+    // closing. Like an origin, an extension shows at most max_live_notifications_per_origin at a time.
+    // https://developer.chrome.com/docs/extensions/reference/api/notifications
+    enum class ExtensionNotificationEvent : u8 {
+        Clicked,
+        // The platform couldn't show it.
+        Failed,
+        Closed,
+        ClosedByUser,
+    };
+    u64 show_for_extension(String const& extension_id, String attribution, Web::NotificationsAPI::NotificationData, Optional<u64> replaces, Function<void(ExtensionNotificationEvent)> on_event);
+    void close_for_extension(u64 id);
+    // Takes down an extension's notifications without telling it, as it was unloaded.
+    void close_all_for_extension(String const& extension_id);
+
     NotificationBackend& backend();
     void set_backend(NonnullOwnPtr<NotificationBackend>);
 
@@ -71,6 +88,9 @@ private:
         // Tag replacement and the per-origin cap never reach across sessions, so a private window's notification
         // can't close a normal window's and the other way around.
         IsPrivate is_private { IsPrivate::No };
+        // An extension's notification has no page or origin, and tells the extension of its events.
+        String extension_id;
+        Function<void(ExtensionNotificationEvent)> extension_event_handler;
     };
 
     NotificationManager() = default;

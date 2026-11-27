@@ -18,6 +18,8 @@
 #include <LibURL/Parser.h>
 #include <LibWebView/ExtensionPackage.h>
 #include <LibWebView/Extensions.h>
+#include <LibWebView/NotificationManager.h>
+#include <LibWebView/RecordingNotificationBackend.h>
 
 static WebView::LoadedExtension extension_with_manifest(StringView manifest)
 {
@@ -693,4 +695,56 @@ TEST_CASE(shortcuts_go_to_the_user_first_and_then_to_the_first_extension)
     choices.ensure(b.id).set("gone"_string, "Alt+Shift+X"_string);
     choices.ensure(b.id).set("other"_string, "Command+X"_string);
     EXPECT_EQ(describe(WebView::assign_extension_shortcuts(extensions, choices, ShortcutPlatform::Linux)), "A:go=Alt+Shift+G A:stop=Alt+Shift+S"sv);
+}
+
+TEST_CASE(extension_notifications_tell_the_extension_what_becomes_of_them)
+{
+    using Event = WebView::NotificationManager::ExtensionNotificationEvent;
+    auto& manager = WebView::NotificationManager::the();
+    auto backend = make<WebView::RecordingNotificationBackend>();
+    auto& recording = *backend;
+    manager.set_backend(move(backend));
+
+    Vector<String> events;
+    auto show = [&](StringView name, Optional<u64> replaces = {}) {
+        Web::NotificationsAPI::NotificationData data;
+        data.title = Utf16String::from_utf8(name);
+        return manager.show_for_extension("extension"_string, "Extension"_string, move(data), replaces, [&events, name = MUST(String::from_utf8(name))](Event event) {
+            auto what = event == Event::Clicked ? "clicked"sv : event == Event::Failed ? "failed"sv
+                : event == Event::Closed                                               ? "closed"sv
+                                                                                       : "closed by user"sv;
+            events.append(MUST(String::formatted("{} {}", name, what)));
+        });
+    };
+
+    // It shows as coming from the extension.
+    auto first = show("first"sv);
+    EXPECT_EQ(recording.shown().size(), 1u);
+    EXPECT_EQ(recording.shown()[0].attribution, "Extension"sv);
+
+    // A click tells the extension, and the platform takes it down.
+    recording.click(first);
+    EXPECT_EQ(events, (Vector<String> { "first clicked"_string, "first closed by user"_string }));
+    events.clear();
+
+    // A replacement takes the old one's place without telling of its closing.
+    auto second = show("second"sv);
+    auto replacement = show("replacement"sv, second);
+    EXPECT_EQ(recording.shown().size(), 1u);
+    EXPECT_EQ(recording.shown()[0].data.title, u"replacement"sv);
+    recording.dismiss(replacement);
+    EXPECT_EQ(events, (Vector<String> { "replacement closed by user"_string }));
+    events.clear();
+
+    // There are no more than so many at a time; the oldest goes first.
+    for (size_t i = 0; i <= WebView::NotificationManager::max_live_notifications_per_origin; ++i)
+        show(MUST(String::formatted("n{}", i)));
+    EXPECT_EQ(recording.shown().size(), WebView::NotificationManager::max_live_notifications_per_origin);
+    EXPECT_EQ(events, (Vector<String> { "n0 closed"_string }));
+    events.clear();
+
+    // An unloaded extension's notifications go without a word.
+    manager.close_all_for_extension("extension"_string);
+    EXPECT(recording.shown().is_empty());
+    EXPECT(events.is_empty());
 }

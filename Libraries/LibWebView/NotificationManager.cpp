@@ -71,6 +71,8 @@ void NotificationManager::show(WebContentPage& page, u64 page_notification_id, U
         .traversable = page.traversable().make_weak_ptr<CanonicalTraversable>(),
         .tag = data.tag,
         .is_private = page.view().session().is_private(),
+        .extension_id = {},
+        .extension_event_handler = {},
     };
 
     // Same origin and same tag take the place of the earlier notification (the spec's oldNotification): Its page
@@ -79,7 +81,7 @@ void NotificationManager::show(WebContentPage& page, u64 page_notification_id, U
     if (!data.tag.is_empty()) {
         for (size_t index = 0; index < m_records.size(); ++index) {
             auto const& existing = m_records[index];
-            if (existing.tag == data.tag && existing.is_private == record.is_private && existing.origin.is_same_origin(origin)) {
+            if (existing.extension_id.is_empty() && existing.tag == data.tag && existing.is_private == record.is_private && existing.origin.is_same_origin(origin)) {
                 replaces = existing.id;
                 report_closed(existing, false);
                 m_records.remove(index);
@@ -91,12 +93,12 @@ void NotificationManager::show(WebContentPage& page, u64 page_notification_id, U
     // An origin shows a bounded number of notifications at a time; the oldest makes room for a new one.
     size_t live_for_origin = 0;
     for (auto const& existing : m_records) {
-        if (existing.is_private == record.is_private && existing.origin.is_same_origin(origin))
+        if (existing.extension_id.is_empty() && existing.is_private == record.is_private && existing.origin.is_same_origin(origin))
             ++live_for_origin;
     }
     while (live_for_origin >= max_live_notifications_per_origin) {
         for (size_t index = 0; index < m_records.size(); ++index) {
-            if (m_records[index].is_private == record.is_private && m_records[index].origin.is_same_origin(origin)) {
+            if (m_records[index].extension_id.is_empty() && m_records[index].is_private == record.is_private && m_records[index].origin.is_same_origin(origin)) {
                 close_record_from_browser(index);
                 --live_for_origin;
                 break;
@@ -116,6 +118,72 @@ void NotificationManager::show(WebContentPage& page, u64 page_notification_id, U
     });
 }
 
+u64 NotificationManager::show_for_extension(String const& extension_id, String attribution, Web::NotificationsAPI::NotificationData data, Optional<u64> replaces, Function<void(ExtensionNotificationEvent)> on_event)
+{
+    if (replaces.has_value()) {
+        auto index = index_of(*replaces);
+        if (index.has_value() && m_records[*index].extension_id == extension_id)
+            m_records.remove(*index);
+        else
+            replaces.clear();
+    }
+
+    // The oldest makes room for a new one.
+    auto live_for_extension = [&] {
+        size_t count = 0;
+        for (auto const& record : m_records) {
+            if (record.extension_id == extension_id)
+                ++count;
+        }
+        return count;
+    };
+    while (live_for_extension() >= max_live_notifications_per_origin)
+        close_record_from_browser(m_records.find_first_index_if([&](auto const& record) { return record.extension_id == extension_id; }).value());
+
+    auto id = m_next_id++;
+    m_records.append(Record {
+        .id = id,
+        .page = nullptr,
+        .page_id = {},
+        .page_notification_id = 0,
+        .origin = URL::Origin::create_opaque(),
+        .origin_url = {},
+        .traversable = {},
+        .tag = {},
+        .is_private = IsPrivate::No,
+        .extension_id = extension_id,
+        .extension_event_handler = move(on_event),
+    });
+    backend().show(PlatformNotification {
+        .id = id,
+        .page_id = {},
+        .replaces = replaces,
+        .data = move(data),
+        .attribution = move(attribution),
+        .icon = nullptr,
+    });
+    return id;
+}
+
+void NotificationManager::close_for_extension(u64 id)
+{
+    if (auto index = index_of(id); index.has_value() && !m_records[*index].extension_id.is_empty())
+        backend().close(id);
+}
+
+void NotificationManager::close_all_for_extension(String const& extension_id)
+{
+    Vector<u64> ids;
+    m_records.remove_all_matching([&](Record const& record) {
+        if (record.extension_id != extension_id)
+            return false;
+        ids.append(record.id);
+        return true;
+    });
+    for (auto id : ids)
+        backend().close(id);
+}
+
 void NotificationManager::close(WebContentPage& page, u64 page_notification_id)
 {
     if (auto index = index_of(page, page_notification_id); index.has_value())
@@ -126,7 +194,7 @@ Vector<u64> NotificationManager::ids_without_a_page_for_testing(Web::PageId page
 {
     Vector<u64> ids;
     for (auto const& record : m_records) {
-        if (record.page_id == page_id && !record.page)
+        if (record.extension_id.is_empty() && record.page_id == page_id && !record.page)
             ids.append(record.id);
     }
     return ids;
@@ -166,7 +234,7 @@ void NotificationManager::reset_page_for_testing(WebContentPage& page)
 {
     Vector<u64> live;
     for (auto const& record : m_records) {
-        if (record.page_id == page.id())
+        if (record.extension_id.is_empty() && record.page_id == page.id())
             live.append(record.id);
     }
     for (auto id : live) {
@@ -214,6 +282,10 @@ void NotificationManager::close_record_from_browser(size_t index)
 
 void NotificationManager::report_closed(Record const& record, bool by_user)
 {
+    if (record.extension_event_handler) {
+        record.extension_event_handler(by_user ? ExtensionNotificationEvent::ClosedByUser : ExtensionNotificationEvent::Closed);
+        return;
+    }
     if (record.page && record.page->is_open())
         record.page->async_notification_closed(record.page_notification_id, by_user);
 }
@@ -234,6 +306,10 @@ void NotificationManager::backend_did_fail(u64 id)
     if (!index.has_value())
         return;
     auto record = m_records.take(*index);
+    if (record.extension_event_handler) {
+        record.extension_event_handler(ExtensionNotificationEvent::Failed);
+        return;
+    }
     if (record.page && record.page->is_open())
         record.page->async_notification_show_failed(record.page_notification_id);
 }
@@ -244,6 +320,13 @@ void NotificationManager::backend_did_click(u64 id)
     if (!index.has_value())
         return;
     auto const& record = m_records[*index];
+    // A click on an extension's notification only tells the extension, which decides what it does; the platform takes
+    // the notification down, and the extension hears of that too.
+    // NB: The handler runs while the record is in the list, so it must not close the notification itself.
+    if (record.extension_event_handler) {
+        record.extension_event_handler(ExtensionNotificationEvent::Clicked);
+        return;
+    }
     if (record.page && record.page->is_open()) {
         // The click is the user's, so the page may open a window from its handler: The UI process checks the
         // activation it granted, not the one the renderer reports.

@@ -175,6 +175,8 @@ private:
     void search_query(WebContentPage&, JsonArray const& arguments, Completion);
     void bookmarks_call(StringView function, JsonArray const& arguments, Completion);
     void permissions_call(LoadedExtension const&, StringView function, JsonArray const& arguments, Completion);
+    CallResult notifications_call(LoadedExtension const&, StringView function, JsonArray const& arguments);
+    void show_notification(LoadedExtension const&, String const& notification_id, JsonObject options, Optional<u64> replaces);
     CallResult open_action_popup(LoadedExtension const&, JsonValue const& options);
     CallResult commands_get_all(LoadedExtension const&);
     void run_command(LoadedExtension const&, StringView command, ViewImplementation&, size_t tab_index);
@@ -249,6 +251,13 @@ private:
 
     NonnullOwnPtr<ExtensionActions> m_actions;
 
+    // The notifications each extension shows, by extension ID and then by the extension's ID for the notification:
+    // the NotificationManager's ID for it, and the options it was last given, which notifications.update adds to.
+    struct ExtensionNotification {
+        u64 id { 0 };
+        JsonObject options;
+    };
+    HashMap<String, HashMap<String, ExtensionNotification>> m_notifications;
 
     // NB: The UI keeps the history, in a database this reads too.
     RefPtr<Database::Database> m_history_database;
