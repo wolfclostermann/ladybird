@@ -58,8 +58,9 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 
 - [x] Keep the test extensions and pages (a toy extension, a Vimium test page) in the repo or another permanent
       place. They are in `Tests/LibWebView/Extensions/` (see its README), with `tools/fetch-vimium.sh` for Vimium.
-- [ ] WebDriver's Navigate To can't open an extension's own pages (they fail with "Permission denied"), because the
-      browser didn't start the load. Turn the `tools/drive*.py` scripts into `ladybird_python_test`s once it can.
+- [x] WebDriver's Navigate To opens an extension's own pages. `Tests/LibWebView/test-webdriver-extensions.py` checks
+      content scripts, extension pages and messaging through WebDriver under CTest.
+- [ ] Move what's left of the `tools/drive*.py` scripts (reload, remove, Load Unpacked…) into that test.
 - [x] Format the new code with clang-format (Xcode's 21 on the changed lines), prettier and ruff.
       `Meta/Linters/check_libweb_realm_mentions.py` still fails: `LibWeb/Extensions/` mentions `JS::Realm`.
 - [ ] Close the security gaps before everyday use:

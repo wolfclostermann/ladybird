@@ -1,8 +1,9 @@
 # Extension test fixtures
 
-Extensions, pages and scripts used to try out WebExtensions support by hand and through WebDriver. None of this
-runs in CI: `TestExtensions.cpp` holds the automated tests. The fixtures were made while building each feature and are
-kept so that the checks can be repeated.
+Extensions, pages and scripts used to try out WebExtensions support by hand and through WebDriver.
+`TestExtensions.cpp` and `Tests/LibWebView/test-webdriver-extensions.py` hold the automated tests; the rest is for
+trying things by hand. The fixtures were made while building each feature and are kept so that the checks can be
+repeated.
 
 ## Layout
 
@@ -28,7 +29,8 @@ kept so that the checks can be repeated.
   - `msg-ext`: `runtime.sendMessage` and `runtime.connect` between the background page, a content script and an
     extension page in a frame of the web page: who receives, whose response wins, ports with several receivers, a
     port closing when its frame navigates or is removed, and `tabs.sendMessage` with no listener. Runs headless on any
-    `http://127.0.0.1` page and logs `MSG ...` lines.
+    `http://127.0.0.1` page whose URL ends in `#msg-probe`, logging `MSG ...` lines.
+    `Tests/LibWebView/test-webdriver-extensions.py` uses its pages too.
   - `tab-watch-ext`: for trying tab moves, pins and `chrome.sessions` by hand. Its popup lists recently closed tabs
     with Restore buttons and shows tab events live, streamed from the background page over a port.
   - `bm-ext`, `search-ext`, `fav-ext`: bookmarks, `search.query`, the `_favicon/` endpoint (with `sites/fav-site`).
@@ -62,8 +64,9 @@ kept so that the checks can be repeated.
   - `click.swift` (`swift tools/click.swift x y [right]`) and `press.applescript` (`osascript tools/press.applescript
     <button name>`): drive the Qt UI with real input on macOS. These take over the mouse and keyboard.
 
-## Known gaps
+## Automated tests
 
-- WebDriver's Navigate To cannot open an extension's own page (for example its options page): the browser only lets a
-  view read an extension's files when it started the load itself, so the load fails with "Permission denied".
-  Opening the page from about:extensions or the toolbar button's menu works.
+- `Tests/LibWebView/test-webdriver-extensions.py` (run by CTest as `test-webdriver-extensions`) loads `mark-ext` and
+  `msg-ext` through WebDriver: content scripts and turning an extension off on about:extensions, WebDriver opening an
+  extension's page while a web page can't, and messages and ports between the extension's pages.
+- The `tools/drive*.py` scripts cover more of about:extensions (reload, remove, Load Unpacked…) and still run by hand.

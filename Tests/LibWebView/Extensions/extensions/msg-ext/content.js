@@ -48,4 +48,5 @@ async function main() {
     log("done");
 }
 
-main().catch(error => log("error " + error));
+// Only a page asking for the probe runs it, so the extension can be loaded alongside others without getting in the way.
+if (location.hash === "#msg-probe") main().catch(error => log("error " + error));
