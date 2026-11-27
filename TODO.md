@@ -47,6 +47,8 @@ Work on the `web-extensions` branch, which lets Ladybird load unpacked Chrome ex
 - [x] An extensions menu (puzzle-piece button) listing every extension with a toolbar button, with pinning, as in
       Chromium. Buttons are unpinned by default; pins and their order persist. `action.openPopup` and
       `action.getUserSettings().isOnToolbar` work. Pinned buttons can be dragged into another order.
+- [x] An unpinned extension's button shows while its popup is open, and the popup hangs from it, as in Chromium.
+      Needs checking in the Qt UI: only the popup's position was checked, with the screen locked.
 
 ## Other APIs
 

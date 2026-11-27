@@ -121,6 +121,7 @@ private:
     void drag_extension_button(ExtensionActionButton&, QPoint global_position);
     void drop_extension_button(ExtensionActionButton&);
     void update_extensions_popover();
+    void update_extension_buttons_visibility();
     void click_extension_button(String const& extension_id);
 
     virtual bool event(QEvent*) override;
@@ -206,6 +207,9 @@ private:
     QWidget* m_extension_buttons_container { nullptr };
     Vector<ExtensionActionButton*> m_extension_buttons;
     QPointer<ExtensionPopup> m_extension_popup;
+    // Like Chromium, an extension that is not pinned shows its button while its popup is open, for the popup to hang
+    // from.
+    Optional<String> m_popped_out_extension_id;
     // The extensions menu, which holds the buttons that are not pinned to the toolbar.
     ToolbarButton* m_extensions_menu_button { nullptr };
     QPointer<ExtensionsPopover> m_extensions_popover;

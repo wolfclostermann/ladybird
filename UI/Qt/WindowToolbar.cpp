@@ -1384,7 +1384,7 @@ WindowToolbar::WindowToolbar(WebView::IsPrivate is_private, QWidget* parent)
     m_extensions_menu_button->setObjectName("LadybirdExtensionsMenuButton");
     m_extensions_menu_button->setToolTip("Extensions");
     m_extensions_menu_button->setAccessibleName("Extensions");
-    // NB: The button stays checked while the menu, or the popup of an extension that is not pinned, is open.
+    // NB: The button stays checked while the menu is open.
     m_extensions_menu_button->setCheckable(true);
     m_extensions_menu_button->setAutoRaise(true);
     m_extensions_menu_button->setFocusPolicy(Qt::NoFocus);
@@ -2539,7 +2539,6 @@ void WindowToolbar::update_extension_buttons()
         auto* button = m_extension_buttons[i];
         auto pinned = action.get_bool("pinned"sv).value_or(false);
         button->set_extension_details(qstring_from_ak_string(name), action.get_bool("hasOptionsPage"sv).value_or(false), pinned);
-        button->setVisible(pinned);
         button->setIcon(extension_icon(string("icon"sv), name, palette));
         button->setToolTip(qstring_from_ak_string(title));
         button->setAccessibleName(qstring_from_ak_string(title));
@@ -2549,11 +2548,22 @@ void WindowToolbar::update_extension_buttons()
             color_from_json(array("badgeTextColor"sv), Qt::white));
     }
 
-    m_extension_buttons_container->setVisible(any_of(m_extension_buttons, [](auto* button) { return button->is_pinned(); }));
+    update_extension_buttons_visibility();
     m_extensions_menu_button->setVisible(!m_extension_buttons.is_empty());
     if (m_extension_buttons.is_empty() && m_extensions_popover)
         m_extensions_popover->close();
     update_extensions_popover();
+}
+
+// The pinned buttons show, and the button of an extension whose popup is open.
+void WindowToolbar::update_extension_buttons_visibility()
+{
+    auto is_shown = [&](ExtensionActionButton const* button) {
+        return button->is_pinned() || button->extension_id() == m_popped_out_extension_id;
+    };
+    for (auto* button : m_extension_buttons)
+        button->setVisible(is_shown(button));
+    m_extension_buttons_container->setVisible(any_of(m_extension_buttons, is_shown));
 }
 
 // The pinned buttons come first in the layout, in the order the application gives, and the others are hidden after them.
@@ -2711,12 +2721,8 @@ void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, U
     if (&tab != m_tab.data())
         return;
 
-    // The popup hangs from the extension's button, or from the extensions menu's while the button is not pinned.
     auto* extension_button = this->extension_button(extension_id);
     if (!extension_button)
-        return;
-    QToolButton* anchor = extension_button->is_pinned() ? static_cast<QToolButton*>(extension_button) : m_extensions_menu_button;
-    if (!anchor->isVisible())
         return;
 
     if (m_extension_popup)
@@ -2724,11 +2730,34 @@ void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, U
     if (m_extensions_popover)
         m_extensions_popover->close();
 
+    // The popup hangs from the extension's button, which shows while the popup is open if it is not pinned, as in
+    // Chromium. Should the button still not show, it hangs from the extensions menu's.
+    if (!extension_button->is_pinned()) {
+        m_popped_out_extension_id = extension_id;
+        update_extension_buttons_visibility();
+        // NB: The button's place is known once the toolbar has laid it out.
+        if (auto* layout = m_extension_buttons_container->parentWidget()->layout())
+            layout->activate();
+    }
+    QToolButton* anchor = extension_button->isVisible() ? static_cast<QToolButton*>(extension_button) : m_extensions_menu_button;
+    if (!anchor->isVisible()) {
+        if (m_popped_out_extension_id == extension_id) {
+            m_popped_out_extension_id.clear();
+            update_extension_buttons_visibility();
+        }
+        return;
+    }
+
     auto* popup = new ExtensionPopup(this, extension_id, tab.view(), url);
     m_extension_popup = popup;
-    popup->on_visibility_change = [anchor = QPointer(anchor)](bool visible) {
+    popup->on_visibility_change = [this, popup = QPointer(popup), anchor = QPointer(anchor)](bool visible) {
         if (anchor)
             anchor->setChecked(visible);
+        // The button goes again with its popup, unless another popup has taken the popup's place meanwhile.
+        if (!visible && m_popped_out_extension_id.has_value() && m_extension_popup == popup) {
+            m_popped_out_extension_id.clear();
+            update_extension_buttons_visibility();
+        }
     };
     popup->on_resize = [this, popup, anchor = QPointer(anchor)] {
         if (anchor)
@@ -2737,6 +2766,11 @@ void WindowToolbar::show_extension_popup(String const& extension_id, Tab& tab, U
     popup->adjustSize();
     move_popover_to_button(*popup, *anchor);
     popup->show();
+    // NB: A button that has just shown may not be in its place until the toolbar has laid itself out again.
+    QTimer::singleShot(0, popup, [this, popup, anchor = QPointer(anchor)] {
+        if (anchor)
+            move_popover_to_button(*popup, *anchor);
+    });
 }
 
 void WindowToolbar::extension_popup_did_request_size(u64 view_id, Gfx::IntSize size)
