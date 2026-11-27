@@ -312,8 +312,8 @@
         <div class="card">
             <div id="extensions"></div>
             <div id="empty" class="hidden">
-                No extensions are installed. Choose Load Unpacked… to install an extension from its folder, or
-                Install from File… to install a packed extension (a .crx or .zip file).
+                No extensions are installed. Choose Load Unpacked… to install an extension from its folder, or Install
+                from File… to install a packed extension (a .crx or .zip file).
             </div>
         </div>
 
@@ -406,7 +406,10 @@
                 add("Folder", extension.directory, "monospace");
                 add("Manifest version", String(extension.manifestVersion));
                 if (extension.background)
-                    add("Background", `${extension.background}, ${extension.backgroundRunning ? "running" : "not running"}`);
+                    add(
+                        "Background",
+                        `${extension.background}, ${extension.backgroundRunning ? "running" : "not running"}`
+                    );
                 add("Permissions", extension.permissions.join(", "), "monospace");
                 add("Site access", extension.hostPermissions.join(", "), "monospace");
                 add("Runs on", extension.contentScriptMatches.join(", "), "monospace");

@@ -30,10 +30,10 @@
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
-#include <LibWebCommon/Extensions/FrameId.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Page/Page.h>
 #include <LibWeb/WebIDL/Promise.h>
+#include <LibWebCommon/Extensions/FrameId.h>
 
 namespace Web::Extensions {
 
@@ -539,9 +539,7 @@ GC::Ref<ExtensionContext> ExtensionContext::create(DOM::Document& document, JS::
             document->page().client().page_did_call_extension_api(extension_id, context_json_for(*document, type), api, arguments_json, call_id);
             return promise->promise();
         }),
-        2,
-        "call"_utf16_fly_string,
-        &realm);
+        2, "call"_utf16_fly_string, &realm);
 
     HTML::prepare_to_run_script(settings);
     auto result = vm.run(*script.value());
@@ -597,9 +595,7 @@ void ExtensionContext::dispatch_event(String const& event, String const& argumen
             function(move(response));
             return JS::js_undefined();
         }),
-        1,
-        "respond"_utf16_fly_string,
-        &realm);
+        1, "respond"_utf16_fly_string, &realm);
 
     HTML::TemporaryExecutionContext execution_context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
     auto result = JS::call(vm, *m_dispatcher, JS::js_undefined(), JS::PrimitiveString::create(vm, Utf16String::from_utf8(event)), JS::PrimitiveString::create(vm, Utf16String::from_utf8(arguments_json)), respond);

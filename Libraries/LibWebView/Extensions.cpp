@@ -9,9 +9,9 @@
 #include <AK/LexicalPath.h>
 #include <AK/StringBuilder.h>
 #include <LibCore/File.h>
-#include <LibFileSystem/FileSystem.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
+#include <LibFileSystem/FileSystem.h>
 #include <LibURL/Origin.h>
 #include <LibURL/Parser.h>
 #include <LibURL/URL.h>

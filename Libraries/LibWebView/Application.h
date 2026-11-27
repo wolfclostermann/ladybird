@@ -50,10 +50,10 @@
 #include <LibWebView/BrowserProcess.h>
 #include <LibWebView/BrowsingSession.h>
 #include <LibWebView/DownloadStore.h>
-#include <LibWebView/ExternalURLHandler.h>
-#include <LibWebView/FileDownloader.h>
 #include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Extensions.h>
+#include <LibWebView/ExternalURLHandler.h>
+#include <LibWebView/FileDownloader.h>
 #include <LibWebView/Forward.h>
 #include <LibWebView/LocalFileRoot.h>
 #include <LibWebView/MediaSessionCoordinator.h>

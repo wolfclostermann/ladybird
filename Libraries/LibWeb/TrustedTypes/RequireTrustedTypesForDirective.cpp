@@ -13,8 +13,8 @@
 #include <LibWeb/ContentSecurityPolicy/PolicyList.h>
 #include <LibWeb/ContentSecurityPolicy/Violation.h>
 #include <LibWeb/DOM/Document.h>
-#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/DOMURL/DOMURL.h>
+#include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/Fetch/Fetching/ClientContextSnapshots.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
 #include <LibWeb/HTML/PolicyContainers.h>

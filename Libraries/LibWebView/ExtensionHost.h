@@ -44,7 +44,6 @@ public:
     };
     using Completion = Function<void(CallResult)>;
 
-
     void handle_api_call(WebContentPage&, String const& extension_id, String const& context_json, String const& api, String const& arguments_json, u64 call_id);
     void did_finish_event(WebContentPage const&, u64 dispatch_id, Optional<String> response_json);
 

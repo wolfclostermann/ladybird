@@ -10,10 +10,10 @@
 #include <AK/ByteString.h>
 #include <AK/Error.h>
 #include <AK/HashTable.h>
-#include <AK/JsonObject.h>
-#include <AK/String.h>
 #include <AK/JsonArray.h>
+#include <AK/JsonObject.h>
 #include <AK/Optional.h>
+#include <AK/String.h>
 #include <AK/Vector.h>
 #include <LibIPC/File.h>
 #include <LibURL/Forward.h>

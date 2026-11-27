@@ -11,8 +11,11 @@
 #include <AK/StringBuilder.h>
 #include <AK/Utf16StringBuilder.h>
 #include <LibGC/Heap.h>
+#include <LibGC/Root.h>
 #include <LibJS/Console.h>
 #include <LibJS/Runtime/ConsoleObject.h>
+#include <LibJS/Runtime/Error.h>
+#include <LibJS/Runtime/NativeFunction.h>
 #include <LibJS/Runtime/Realm.h>
 #include <LibJS/Runtime/VM.h>
 #include <LibJS/ScriptCompilation.h>
@@ -28,17 +31,14 @@
 #include <LibWeb/Extensions/ContentScripts.h>
 #include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
-#include <LibWebCommon/Extensions/WebAccessibleResources.h>
+#include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
-#include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Page/Page.h>
-#include <LibJS/Runtime/Error.h>
-#include <LibJS/Runtime/NativeFunction.h>
-#include <LibGC/Root.h>
+#include <LibWebCommon/Extensions/WebAccessibleResources.h>
 
 namespace Web::Extensions {
 
@@ -466,9 +466,7 @@ static void inject_into_document(DOM::Document& document, Extension const& exten
             results->add(frame_id, TRY(vm.argument(0).to_utf16_string(vm)).to_well_formed_utf8());
             return JS::js_undefined();
         }),
-        1,
-        "report"_utf16_fly_string,
-        &isolated_world);
+        1, "report"_utf16_fly_string, &isolated_world);
 
     HTML::TemporaryExecutionContext execution_context { isolated_world, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
     if (auto result = JS::call(vm, reporter.value(), JS::js_undefined(), value, report); result.is_error()) {

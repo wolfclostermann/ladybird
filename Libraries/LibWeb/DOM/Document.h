@@ -39,8 +39,6 @@
 #include <LibWeb/Bindings/Document.h>
 #include <LibWeb/Bindings/NavigationType.h>
 #include <LibWeb/CSS/CustomPropertyRegistration.h>
-#include <LibWeb/Extensions/ContentScripts.h>
-#include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/CSS/ImageStyleValueResourceKey.h>
 #include <LibWeb/CSS/RustInlineStyleBlocks.h>
 #include <LibWeb/CSS/ScrollStateContainerQuery.h>
@@ -54,6 +52,8 @@
 #include <LibWeb/DOM/ShadowRoot.h>
 #include <LibWeb/DOM/ViewportClient.h>
 #include <LibWeb/Export.h>
+#include <LibWeb/Extensions/ContentScripts.h>
+#include <LibWeb/Extensions/ExtensionContext.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/HTML/DocumentReadyState.h>
 #include <LibWeb/HTML/Focus.h>

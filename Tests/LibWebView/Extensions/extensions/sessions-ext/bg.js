@@ -6,12 +6,17 @@ chrome.sessions.onChanged.addListener(() => log("onChanged"));
 
 const describe = sessions =>
     sessions
-        .map(s => (s.tab ? `tab ${s.tab.sessionId} ${s.tab.url}` : `window ${s.window.sessionId} (${s.window.tabs.length})`))
+        .map(s =>
+            s.tab ? `tab ${s.tab.sessionId} ${s.tab.url}` : `window ${s.window.sessionId} (${s.window.tabs.length})`
+        )
         .join(" | ");
 
 async function open_tabs() {
     const tabs = await chrome.tabs.query({});
-    return tabs.map(t => t.url).sort().join(" ");
+    return tabs
+        .map(t => t.url)
+        .sort()
+        .join(" ");
 }
 
 async function run() {

@@ -4,7 +4,9 @@ const log = text => console.log("PORT " + text);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 chrome.runtime.onConnect.addListener(port => {
-    log(`bg onConnect ${port.name} sender.url=${port.sender?.url} tab=${port.sender?.tab?.id} frame=${port.sender?.frameId}`);
+    log(
+        `bg onConnect ${port.name} sender.url=${port.sender?.url} tab=${port.sender?.tab?.id} frame=${port.sender?.frameId}`
+    );
     port.onMessage.addListener((message, receivingPort) => {
         log(`bg got ${JSON.stringify(message)} on ${port.name} same port=${receivingPort === port}`);
         if (message === "close-me") port.disconnect();

@@ -21,5 +21,7 @@ closer.postMessage("close-me");
 chrome.runtime.onConnect.addListener(port => {
     log(`cs onConnect ${port.name} sender.id ok=${port.sender?.id === chrome.runtime.id}`);
     port.onMessage.addListener(message => port.postMessage("cs-echo:" + message));
-    port.onDisconnect.addListener(() => log(`cs ${port.name} onDisconnect lastError=${chrome.runtime.lastError?.message}`));
+    port.onDisconnect.addListener(() =>
+        log(`cs ${port.name} onDisconnect lastError=${chrome.runtime.lastError?.message}`)
+    );
 });

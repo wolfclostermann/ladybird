@@ -19,7 +19,9 @@ const title = async id => {
     }
 };
 
-chrome.tabs.onMoved.addListener(async (id, info) => note(`moved "${await title(id)}" ${info.fromIndex} → ${info.toIndex}`));
+chrome.tabs.onMoved.addListener(async (id, info) =>
+    note(`moved "${await title(id)}" ${info.fromIndex} → ${info.toIndex}`)
+);
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
     if ("pinned" in change) note(`${change.pinned ? "pinned" : "unpinned"} "${tab.title}"`);
 });

@@ -4,7 +4,8 @@ const eventList = document.getElementById("events");
 async function showClosed() {
     const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 8 });
     closedList.replaceChildren();
-    if (sessions.length === 0) closedList.append(Object.assign(document.createElement("li"), { textContent: "Nothing." }));
+    if (sessions.length === 0)
+        closedList.append(Object.assign(document.createElement("li"), { textContent: "Nothing." }));
     for (const session of sessions) {
         const tab = session.tab ?? session.window.tabs[0];
         const id = session.tab?.sessionId ?? session.window.sessionId;

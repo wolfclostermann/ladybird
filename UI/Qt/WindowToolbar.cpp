@@ -37,8 +37,8 @@
 #include <UI/Qt/Popover.h>
 #include <UI/Qt/RemoteDownloads.h>
 #include <UI/Qt/StringUtils.h>
-#include <UI/Qt/Tab.h>
 #include <UI/Qt/SystemAppearance.h>
+#include <UI/Qt/Tab.h>
 #include <UI/Qt/Theme.h>
 #include <UI/Qt/WebContentView.h>
 #include <UI/Qt/WindowControlButton.h>
@@ -2417,7 +2417,6 @@ void WindowToolbar::download_removed(u64, WebView::IsPrivate is_private)
     update_downloads_button();
     update_downloads_popover();
 }
-
 
 static QColor color_from_json(Optional<JsonArray const&> array, QColor fallback)
 {

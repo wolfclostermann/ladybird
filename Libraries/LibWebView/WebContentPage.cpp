@@ -11,12 +11,12 @@
 #include <LibCore/EventLoop.h>
 #include <LibCore/StatsLog.h>
 #include <LibHTTP/Cookie/ParsedCookie.h>
+#include <LibURL/Parser.h>
 #include <LibWebCommon/Geolocation/GeolocationPositionErrorCode.h>
 #include <LibWebCommon/HTML/BrowsingContext.h>
 #include <LibWebCommon/Page/InputEvent.h>
 #include <LibWebCommon/SecureContexts/AbstractOperations.h>
 #include <LibWebCommon/WebDriver/Error.h>
-#include <LibURL/Parser.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>

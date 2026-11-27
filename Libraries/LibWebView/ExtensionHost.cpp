@@ -7,11 +7,15 @@
 #include <AK/JsonParser.h>
 #include <AK/LexicalPath.h>
 #include <AK/QuickSort.h>
+#include <LibCore/File.h>
+#include <LibDatabase/Database.h>
+#include <LibGfx/Bitmap.h>
+#include <LibGfx/ImageFormats/PNGWriter.h>
 #include <LibURL/Parser.h>
-#include <LibWebCommon/Extensions/MatchPattern.h>
-#include <LibWebView/Application.h>
 #include <LibWebCommon/Extensions/FrameId.h>
+#include <LibWebCommon/Extensions/MatchPattern.h>
 #include <LibWebCommon/StorageAPI/StorageKey.h>
+#include <LibWebView/Application.h>
 #include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalNavigable.h>
 #include <LibWebView/CanonicalTraversable.h>
@@ -21,10 +25,6 @@
 #include <LibWebView/HistoryStore.h>
 #include <LibWebView/SearchEngine.h>
 #include <LibWebView/Settings.h>
-#include <LibDatabase/Database.h>
-#include <LibGfx/Bitmap.h>
-#include <LibGfx/ImageFormats/PNGWriter.h>
-#include <LibCore/File.h>
 #include <LibWebView/Utilities.h>
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentPage.h>
@@ -562,7 +562,6 @@ void ExtensionHost::call(WebContentPage& page, LoadedExtension const& extension,
             return complete(result(frames.is_empty() ? JsonValue {} : frames.at(0)));
         return complete(result(frames));
     }
-
 
     if (api == "windows.getCurrent"sv || api == "windows.getLastFocused"sv || api == "windows.get"sv) {
         auto options = argument(api == "windows.get"sv ? 1 : 0);
@@ -1224,9 +1223,7 @@ void ExtensionHost::dispatch_event(ViewImplementation& view, String const& exten
 {
     Vector<ViewImplementation&> views;
     views.append(view);
-    dispatch_event_to_views(views, extension_id, [&](ViewImplementation&) { return target; }, event, arguments, [on_complete = move(on_complete)](Vector<ViewResponse> responses) {
-        on_complete(winning_response(responses));
-    });
+    dispatch_event_to_views(views, extension_id, [&](ViewImplementation&) { return target; }, event, arguments, [on_complete = move(on_complete)](Vector<ViewResponse> responses) { on_complete(winning_response(responses)); });
 }
 
 void ExtensionHost::dispatch_event_to_views(Vector<ViewImplementation&> views, String const& extension_id, Function<JsonObject(ViewImplementation&)> target_for, StringView event, JsonArray const& arguments, Function<void(Vector<ViewResponse>)> on_complete)
@@ -1711,11 +1708,10 @@ void ExtensionHost::inject(ViewImplementation& view, LoadedExtension const& exte
 
     for (auto& page : pages) {
         auto dispatch_id = ++m_next_dispatch_id;
-        m_pending_dispatches.set(dispatch_id, { .page = page.ptr(), .on_complete = [state](Optional<String> results_json) {
+        auto on_results = [state](Optional<String> results_json) {
             if (results_json.has_value()) {
-                if (auto results = JsonParser::parse(*results_json); !results.is_error() && results.value().is_array()) {
+                if (auto results = JsonParser::parse(*results_json); !results.is_error() && results.value().is_array())
                     results.value().as_array().for_each([&](auto const& result) { state->results.must_append(result); });
-                }
             }
             if (--state->remaining == 0) {
                 // The top-level frame comes first, as in Chromium.
@@ -1725,7 +1721,8 @@ void ExtensionHost::inject(ViewImplementation& view, LoadedExtension const& exte
                 });
                 state->on_complete(move(state->results));
             }
-        } });
+        };
+        m_pending_dispatches.set(dispatch_id, { .page = page.ptr(), .on_complete = move(on_results) });
         page->async_inject_into_extension_frames(extension.id, target.serialized(), details.serialized(), dispatch_id);
     }
 }

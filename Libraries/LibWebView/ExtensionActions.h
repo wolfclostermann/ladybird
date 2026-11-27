@@ -11,12 +11,12 @@
 #include <AK/HashMap.h>
 #include <AK/JsonArray.h>
 #include <AK/Optional.h>
-#include <AK/kmalloc.h>
 #include <AK/String.h>
+#include <AK/kmalloc.h>
 #include <LibGfx/Color.h>
 #include <LibURL/URL.h>
-#include <LibWebView/ExtensionHost.h>
 #include <LibWebView/Export.h>
+#include <LibWebView/ExtensionHost.h>
 
 namespace WebView {
 

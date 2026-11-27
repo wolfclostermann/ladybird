@@ -7,8 +7,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.kind === "do")
         return void run(message.step, sender).then(sendResponse, error => sendResponse("error " + error.message)), true;
     log(`bg got ${message.kind} from ${sender.url?.startsWith("chrome-extension:") ? "frame" : "content script"}`);
-    if (message.kind === "ask-bg")
-        sendResponse("bg-answer");
+    if (message.kind === "ask-bg") sendResponse("bg-answer");
 });
 
 chrome.runtime.onConnect.addListener(port => {
@@ -17,9 +16,14 @@ chrome.runtime.onConnect.addListener(port => {
         log(`bg got ${JSON.stringify(message)} on ${port.name}`);
         port.postMessage(`bg-echo ${message}`);
     });
-    port.onDisconnect.addListener(() => log(`bg onDisconnect ${port.name} lastError=${chrome.runtime.lastError?.message}`));
+    port.onDisconnect.addListener(() =>
+        log(`bg onDisconnect ${port.name} lastError=${chrome.runtime.lastError?.message}`)
+    );
     if (port.name === "cs-port")
-        setTimeout(() => { log("bg lets go of cs-port"); port.disconnect(); }, 1000);
+        setTimeout(() => {
+            log("bg lets go of cs-port");
+            port.disconnect();
+        }, 1000);
 });
 
 async function run(step, sender) {
@@ -51,7 +55,9 @@ async function run(step, sender) {
     }
     if (step === "port-to-gone-frame") {
         const port = chrome.runtime.connect({ name: "nav-port" });
-        port.onDisconnect.addListener(() => log(`nav-port onDisconnect lastError=${chrome.runtime.lastError?.message}`));
+        port.onDisconnect.addListener(() =>
+            log(`nav-port onDisconnect lastError=${chrome.runtime.lastError?.message}`)
+        );
         await sleep(500);
         return;
     }
